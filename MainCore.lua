@@ -1,11 +1,12 @@
--- Gamen X | Core Logic v1.8.3 (Full Renewed)
--- Update: Mengganti SaveManager & InterfaceManager ke versi ActualMasterOogway
--- Base: v1.8.2
+-- Gamen X | Core Logic v1.8.5 (UI Blank Fix)
+-- Update: Fix ekstensi SaveManager/InterfaceManager ke .luau
+-- Update: Fix Dropdown Crash jika data kosong (Tambah placeholder)
+-- Update: Safety Check untuk Config Default
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.8.3 (Full Renewed)...")
+print("[Gamen X] Initializing v1.8.5...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -13,12 +14,9 @@ local success, Data = pcall(function()
 end)
 
 if not success or type(Data) ~= "table" then
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Gamen X Error",
-        Text = "Gagal memuat Variables!",
-        Duration = 10
-    })
-    return
+    -- Fallback data jika gagal load agar UI tetap muncul
+    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
+    warn("[Gamen X] Warning: Variables failed to load. Using empty defaults.")
 end
 
 -- ====== SERVICES ======
@@ -33,17 +31,17 @@ local successLib, Fluent = pcall(function()
 end)
 
 if not successLib or not Fluent then 
-    warn("[Gamen X] UI Failed: " .. tostring(Fluent))
+    warn("[Gamen X] UI Library Failed!")
     return 
 end
 
--- UPDATE: Menggunakan Addons dari ActualMasterOogway agar kompatibel
+-- FIX: Menggunakan ekstensi .luau (PENTING)
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/SaveManager.luau"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.8.3",
-    SubTitle = "Full Renewed",
+    Title = "Gamen X | Core v1.8.5",
+    SubTitle = "UI Fix",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -51,14 +49,21 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "UI & Managers Updated.", Duration = 3})
-
 -- ====== LOCAL STATE ======
-local Config = Data.Config
-local ShopData = Data.ShopData
-local LocationCoords = Data.LocationCoords
+local Config = Data.Config or {}
+local ShopData = Data.ShopData or {Rods={}, Baits={}}
+local LocationCoords = Data.LocationCoords or {}
 local FishTierMap = Data.FishTierMap or {}
 local TierColors = Data.TierColors or {}
+
+-- SAFETY DEFAULTS (Mencegah UI Blank karena nil value)
+Config.AutoFish = Config.AutoFish or false
+Config.AutoEquip = Config.AutoEquip or false
+Config.AutoSell = Config.AutoSell or false
+Config.FishDelay = Config.FishDelay or 2.0
+Config.CatchDelay = Config.CatchDelay or 0.5
+Config.SellDelay = Config.SellDelay or 10
+Config.WebhookMinTier = Config.WebhookMinTier or 1
 
 local SelectedRod, SelectedBait = nil, nil
 local currentMode, selectedTarget = "None", nil
@@ -94,7 +99,7 @@ local function HandleFishCaught(fishName, fishData)
     local tierName = GetTierName(tier)
     local tierColor = TierColors[tier] or 16777215
     
-    if Config.DiscordUrl ~= "" then
+    if Config.DiscordUrl and Config.DiscordUrl ~= "" then
         SendWebhook(Config.DiscordUrl, {
             ["content"] = "",
             ["embeds"] = {{
@@ -106,7 +111,7 @@ local function HandleFishCaught(fishName, fishData)
         })
     end
     
-    if Config.TelegramToken ~= "" and Config.TelegramChatID ~= "" then
+    if Config.TelegramToken and Config.TelegramToken ~= "" then
         SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
             ["chat_id"] = Config.TelegramChatID,
             ["text"] = string.format("🎣 *Gamen X Notification*\n\nFish: *%s*\nRarity: *%s*\nWeight: `%s kg`", fishNameStr, tierName, weight),
@@ -153,12 +158,9 @@ task.spawn(function()
     end)
 end)
 
--- ====== FISHING ROUTINES ======
-
--- [1] NORMAL ROUTINE
-local function NormalRoutine()
+-- ====== FISHING LOGIC ======
+local function CastRod()
     if not NetworkLoaded or not Events.equip then return end
-    
     pcall(function()
         Events.equip:FireServer(1)
         task.wait(0.05)
@@ -166,35 +168,11 @@ local function NormalRoutine()
         task.wait(0.02)
         Events.minigame:InvokeServer(1.2854545116425, 1)
     end)
-    
-    task.wait(Config.FishDelay)
-    pcall(function() Events.fishing:FireServer() end)
-    task.wait(Config.CatchDelay)
 end
 
--- [2] BLATANT ROUTINE
-local function BlatantRoutine()
-    if not NetworkLoaded or not Events.equip then return end
-    
-    pcall(function()
-        Events.equip:FireServer(1)
-        task.wait(0.01)
-        task.spawn(function()
-            Events.charge:InvokeServer(1755848498.4834)
-            task.wait(0.01)
-            Events.minigame:InvokeServer(1.2854545116425, 1)
-        end)
-        task.wait(0.05)
-        task.spawn(function()
-            Events.charge:InvokeServer(1755848498.4834)
-            task.wait(0.01)
-            Events.minigame:InvokeServer(1.2854545116425, 1)
-        end)
-    end)
-    
-    task.wait(Config.FishDelay)
-    for i = 1, 5 do pcall(function() Events.fishing:FireServer() end) task.wait(0.01) end
-    task.wait(Config.CatchDelay * 0.5)
+local function ReelIn()
+    if not NetworkLoaded or not Events.fishing then return end
+    pcall(function() Events.fishing:FireServer() end)
 end
 
 -- ====== UI BUILDER ======
@@ -207,7 +185,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.8.3\nManagers Updated to Renewed."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.8.5\nFixed UI Loading Issues."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Main Automation")
@@ -215,13 +193,6 @@ Tabs.Fishing:AddToggle("AutoFish", {
     Title="Enable Auto Fish", 
     Default=Config.AutoFish, 
     Callback=function(v) Config.AutoFish=v end
-})
-
-Tabs.Fishing:AddToggle("BlatantMode", {
-    Title="Blatant Mode", 
-    Description="Double cast & Spam Reel (Risky)",
-    Default=Config.BlatantMode, 
-    Callback=function(v) Config.BlatantMode=v end
 })
 
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip Rod", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
@@ -254,8 +225,12 @@ Tabs.Fishing:AddInput("SellD", {
 
 -- Merchant Tab
 local RodList, BaitList = {}, {}
-for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end; table.sort(RodList)
-for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end; table.sort(BaitList)
+for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end
+for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end
+-- FIX: Prevent Empty Dropdown Crash
+if #RodList == 0 then table.insert(RodList, "No Data") end
+if #BaitList == 0 then table.insert(BaitList, "No Data") end
+table.sort(RodList); table.sort(BaitList)
 
 Tabs.Merchant:AddDropdown("Rods", {
     Title="Select Rod", 
@@ -296,7 +271,11 @@ Tabs.Webhook:AddButton({Title="Test Webhook", Callback=function()
 end})
 
 -- Teleport Tab
-local LocationKeys = {}; for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end; table.sort(LocationKeys)
+local LocationKeys = {}
+for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end
+if #LocationKeys == 0 then table.insert(LocationKeys, "No Data") end -- FIX Empty Dropdown
+table.sort(LocationKeys)
+
 local TargetDrop = Tabs.Teleport:AddDropdown("Target", {
     Title="Select Target", 
     Values={}, 
@@ -311,7 +290,13 @@ Tabs.Teleport:AddDropdown("Mode", {
     Multi=false,
     Callback=function(v) 
         currentMode=v; selectedTarget=nil; TargetDrop:SetValue(nil)
-        if v=="Player" then TargetDrop:SetValues(GetNames()) else TargetDrop:SetValues(LocationKeys) end 
+        if v=="Player" then 
+            local names = GetNames()
+            if #names == 0 then names = {"No Players"} end -- FIX
+            TargetDrop:SetValues(names) 
+        else 
+            TargetDrop:SetValues(LocationKeys) 
+        end 
     end
 })
 Tabs.Teleport:AddButton({Title="Teleport Now", Callback=function()
@@ -322,11 +307,7 @@ end})
 -- ====== LOOPS ======
 task.spawn(function()
     while true do
-        if Config.AutoFish and NetworkLoaded then 
-            if Config.BlatantMode then BlatantRoutine() else NormalRoutine() end
-        else 
-            task.wait(0.5) 
-        end
+        if Config.AutoFish and NetworkLoaded then CastRod(); task.wait(Config.FishDelay); ReelIn(); task.wait(Config.CatchDelay) else task.wait(0.5) end
         task.wait(0.1)
     end
 end)
@@ -336,11 +317,6 @@ task.spawn(function() while true do if Config.AutoSell and NetworkLoaded then pc
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-InterfaceManager:SetFolder("GamenX")
-SaveManager:SetFolder("GamenX/configs")
-
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
