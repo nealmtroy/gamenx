@@ -1,11 +1,11 @@
--- Gamen X | Core Logic v1.5.0 (Precision Shake Update)
--- Update: Auto Shake sekarang menargetkan tombol secara presisi (AbsolutePosition)
--- Fix: Mencegah klik meleset jika resolusi layar berubah
+-- Gamen X | Core Logic v1.5.1 (Active Cursor Shake)
+-- Update: Mengembalikan VirtualInputManager
+-- Update: Auto Shake sekarang MENGGERAKKAN CURSOR ke tombol (Lebih Stabil)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.0...")
+print("[Gamen X] Initializing v1.5.1...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -27,10 +27,18 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
+
+-- Services Input (Load Dua-duanya untuk backup)
 local VirtualUser = nil
+local VirtualInputManager = nil
+
 pcall(function() 
     VirtualUser = game:GetService("VirtualUser") 
     if VirtualUser then VirtualUser:CaptureController() end
+end)
+
+pcall(function()
+    VirtualInputManager = game:GetService("VirtualInputManager")
 end)
 
 -- ====== UI LIBRARY ======
@@ -44,8 +52,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.0",
-    SubTitle = "Precision Shake",
+    Title = "Gamen X | Core v1.5.1",
+    SubTitle = "Active Cursor",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -53,7 +61,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Precision Shake Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Active Cursor Shake Enabled.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -173,32 +181,50 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- UPDATED: SHAKE PRESISI
+-- UPDATED: ACTIVE CURSOR SHAKE
+-- Fungsi ini akan memindahkan mouse ke tombol dan mengkliknya
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     local shakeUI = PlayerGui:FindFirstChild("shakeui")
+    
     if shakeUI and shakeUI.Enabled then
         local safezone = shakeUI:FindFirstChild("safezone")
         local button = safezone and safezone:FindFirstChild("button")
         
         if button and button.Visible then
-            pcall(function() button:Activate() end)
-            pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
+            local pos = button.AbsolutePosition
+            local size = button.AbsoluteSize
+            local centerX = pos.X + (size.X / 2)
+            local centerY = pos.Y + (size.Y / 2)
             
-            if VirtualUser then
+            -- PRIORITAS 1: VirtualInputManager (Gerak + Klik) - Sangat Stabil
+            if VirtualInputManager then
                 pcall(function()
-                    -- MENGHITUNG TENGAH TOMBOL SECARA AKURAT
-                    -- Bukan tengah layar, tapi tengah tombolnya sendiri
-                    local pos = button.AbsolutePosition
-                    local size = button.AbsoluteSize
-                    local centerX = pos.X + (size.X / 2)
-                    local centerY = pos.Y + (size.Y / 2)
+                    -- Gerakkan mouse ke tengah tombol
+                    VirtualInputManager:SendMouseMoveEvent(centerX, centerY, game)
                     
+                    -- Klik kiri
+                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+                    task.wait(0.01)
+                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+                end)
+            
+            -- PRIORITAS 2: VirtualUser (Gerak + Klik) - Cadangan
+            elseif VirtualUser then
+                pcall(function()
+                    -- Gerakkan mouse
+                    VirtualUser:MoveMouse(Vector2.new(centerX, centerY))
+                    
+                    -- Klik
                     VirtualUser:Button1Down(Vector2.new(centerX, centerY))
                     task.wait(0.01)
                     VirtualUser:Button1Up(Vector2.new(centerX, centerY))
                 end)
+                
+            -- PRIORITAS 3: Activate (Tanpa Gerak)
+            else
+                pcall(function() button:Activate() end)
             end
         end
     end
@@ -214,12 +240,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.0\nUpdated Shake Logic."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.1\nUpdated: Active Cursor Shake."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
 Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
+Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Active Cursor)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
 Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
