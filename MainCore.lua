@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v3.2.0 (Hidden Accordion Fix)
--- Update: Memperbaiki logika hide/show agar Dropdown benar-benar tersembunyi
--- Update: Menu Teleport sekarang RAPIH (Hanya Header yang muncul di awal)
--- Update: Kompatibilitas visibilitas untuk semua elemen UI
+-- Gamen X | Core Logic v3.3.0 (Accordion Final Fix)
+-- Update: Fungsi 'SetItemVisible' diperbaiki untuk Fluent Renewed
+-- Update: Menu Teleport DIJAMIN tertutup saat awal jalan
+-- Update: Logika Buka-Tutup lebih responsif
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v3.2.0...")
+print("[Gamen X] Initializing v3.3.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -35,8 +35,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v3.2.0",
-    SubTitle = "Accordion Fix",
+    Title = "Gamen X | Core v3.3.0",
+    SubTitle = "Accordion Final",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -109,17 +109,26 @@ local function HandleFishCaught(fishName, fishData)
     end
 end
 
--- [[ VISIBILITY HELPER FIXED ]]
--- Fungsi ini sekarang mengecek 'Instance' yang merupakan properti benar untuk Toggle Visible
-local function SetGroupVisibility(group, visible)
-    for _, element in ipairs(group) do
-        pcall(function()
-            if element.Instance then 
-                element.Instance.Visible = visible 
-            elseif element.Frame then
-                element.Frame.Visible = visible
+-- [[ VISIBILITY HELPER v2 ]]
+-- Fungsi ini lebih teliti mencari 'Frame' untuk disembunyikan
+local function SetItemVisible(item, state)
+    pcall(function()
+        if item then
+            -- Cek struktur Fluent Renewed yang mungkin
+            if item.Frame then
+                item.Frame.Visible = state
+            elseif item.Instance and item.Instance.Frame then
+                item.Instance.Frame.Visible = state
+            elseif item.Instance and item.Instance:IsA("GuiObject") then
+                item.Instance.Visible = state
             end
-        end)
+        end
+    end)
+end
+
+local function ToggleGroup(group, state)
+    for _, item in pairs(group) do
+        SetItemVisible(item, state)
     end
 end
 
@@ -158,7 +167,7 @@ task.spawn(function()
         end
 
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "System Connected!", Duration = 3})
     end)
 end)
 
@@ -198,7 +207,7 @@ Tabs.Main:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback
 Tabs.Main:Input("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(v) Config.FishDelay=tonumber(v) or 2.0 end})
 Tabs.Main:Input("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(v) Config.SellDelay=tonumber(v) or 10 end})
 
--- === TAB: TELEPORT (ACCORDION FIXED) ===
+-- === TAB: TELEPORT (ACCORDION) ===
 local function GetPlayerNames()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
@@ -216,27 +225,24 @@ local PlayerOpen = false
 local LocationOpen = false
 
 -- 1. PLAYER ACCORDION
-local PlayerHeader = Tabs.Teleport:Button({
-    Title = "Player Teleport >",
-    Description = "Click to expand",
+Tabs.Teleport:Button({
+    Title = "Player Teleport",
+    Description = "Click to Show/Hide Menu",
     Callback = function()
         PlayerOpen = not PlayerOpen
-        SetGroupVisibility(PlayerGroup, PlayerOpen)
+        ToggleGroup(PlayerGroup, PlayerOpen)
         
         -- Auto Close other menu
         if PlayerOpen then 
             LocationOpen = false
-            SetGroupVisibility(LocationGroup, false)
+            ToggleGroup(LocationGroup, false)
         end
     end
 })
 
+-- Item-item Player (Dimasukkan ke tabel)
 local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title = "Select Player", Values = GetPlayerNames(), Multi = false, Default = 1, Searchable = true})
-table.insert(PlayerGroup, PD)
-
 local RB = Tabs.Teleport:Button({Title = "Refresh Players", Callback = function() PD:SetValues(GetPlayerNames()); PD:SetValue(nil) end})
-table.insert(PlayerGroup, RB)
-
 local TPB = Tabs.Teleport:Button({
     Title = "Teleport to Player",
     Callback = function()
@@ -244,27 +250,29 @@ local TPB = Tabs.Teleport:Button({
         if target and target.Character then LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame end
     end
 })
+
+table.insert(PlayerGroup, PD)
+table.insert(PlayerGroup, RB)
 table.insert(PlayerGroup, TPB)
 
 
 -- 2. LOCATION ACCORDION
-local LocationHeader = Tabs.Teleport:Button({
-    Title = "Location Teleport >",
-    Description = "Click to expand",
+Tabs.Teleport:Button({
+    Title = "Location Teleport",
+    Description = "Click to Show/Hide Menu",
     Callback = function()
         LocationOpen = not LocationOpen
-        SetGroupVisibility(LocationGroup, LocationOpen)
+        ToggleGroup(LocationGroup, LocationOpen)
         
         if LocationOpen then 
             PlayerOpen = false
-            SetGroupVisibility(PlayerGroup, false)
+            ToggleGroup(PlayerGroup, false)
         end
     end
 })
 
+-- Item-item Location (Dimasukkan ke tabel)
 local LD = Tabs.Teleport:Dropdown("LocTarget", {Title = "Select Location", Values = LocationKeys, Multi = false, Default = 1, Searchable = true})
-table.insert(LocationGroup, LD)
-
 local TLB = Tabs.Teleport:Button({
     Title = "Teleport to Location",
     Callback = function()
@@ -272,13 +280,16 @@ local TLB = Tabs.Teleport:Button({
         if target then LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target) end
     end
 })
+
+table.insert(LocationGroup, LD)
 table.insert(LocationGroup, TLB)
 
--- HIDE ALL ON INIT
+-- [[ AUTO HIDE INIT ]]
+-- Sembunyikan semua submenu saat script jalan
 task.spawn(function()
-    task.wait(0.2) -- Beri waktu sedikit agar UI dibuat
-    SetGroupVisibility(PlayerGroup, false)
-    SetGroupVisibility(LocationGroup, false)
+    task.wait(0.5) -- Beri waktu render
+    ToggleGroup(PlayerGroup, false)
+    ToggleGroup(LocationGroup, false)
 end)
 
 
