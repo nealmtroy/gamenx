@@ -23,7 +23,8 @@ Variables.Config = {
     DiscordUrl = "",
     TelegramToken = "",
     TelegramChatID = "",
-    WebhookFish = false -- Fitur Baru: Notifikasi Ikan
+    WebhookFish = false,
+    WebhookMinTier = 1 -- Default: Common (Tier 1)
 }
 
 -- 2. DATABASE SHOP (ID Item)
@@ -40,7 +41,42 @@ Variables.ShopData = {
     }
 }
 
--- 3. DATABASE LOKASI (Koordinat Teleport)
+-- 3. DATABASE IKAN & TIER (Contoh Data - Tambahkan JSON Anda di sini)
+Variables.FishTierMap = {
+    -- Tier 1 (Common)
+    ["Reef Chromis"] = 1, ["Bass"] = 1, ["Salmon"] = 1, ["Trout"] = 1,
+    
+    -- Tier 2 (Uncommon)
+    ["Clownfish"] = 2, ["Red Snapper"] = 2, ["Carp"] = 2,
+    
+    -- Tier 3 (Rare)
+    ["Tuna"] = 3, ["Squid"] = 3, ["Swordfish"] = 3,
+    
+    -- Tier 4 (Epic)
+    ["Pufferfish"] = 4, ["Stingray"] = 4,
+    
+    -- Tier 5 (Legendary)
+    ["Abyss Seahorse"] = 5, ["Great White Shark"] = 5, ["Megalodon"] = 5, ["Whale Shark"] = 5,
+    
+    -- Tier 6 (Mythic)
+    ["Kraken"] = 6, ["Isonade"] = 6,
+    
+    -- Tier 7 (Secret/Special)
+    ["Nessie"] = 7
+}
+
+-- 4. WARNA TIER (Untuk Webhook Discord)
+Variables.TierColors = {
+    [1] = 16777215, -- Common (White)
+    [2] = 65280,    -- Uncommon (Green)
+    [3] = 255,      -- Rare (Blue)
+    [4] = 10181046, -- Epic (Purple)
+    [5] = 16753920, -- Legendary (Orange/Gold)
+    [6] = 16711808, -- Mythic (Pink)
+    [7] = 16711680  -- Secret (Red)
+}
+
+-- 5. DATABASE LOKASI (Koordinat Teleport)
 Variables.LocationCoords = {
     ["Fisherman Island Right"] = Vector3.new(93, 17, 2832),
     ["Fisherman Island Left"] = Vector3.new(-27, 17, 2829),
