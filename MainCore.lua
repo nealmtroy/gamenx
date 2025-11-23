@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.5.4 (Barbar Shake Mode)
--- Update: Auto Shake sekarang SPAM KLIK terus menerus (Blind Mode)
--- Update: Tidak menunggu UI muncul (Sesuai request "jangan nunggu minigame")
--- Update: Target klik prioritas tombol, jika tidak ada -> Tengah Layar
+-- Gamen X | Core Logic v1.5.5 (Silent Barbar Mode)
+-- Update: Menghapus pergerakan kursor (No mousemoveabs/MoveMouse)
+-- Update: Tetap Barbar (Spam Klik) tapi lebih 'Silent'
+-- Update: Prioritas klik via Signal/Activate jika tombol terdeteksi
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.4 (Barbar Mode)...")
+print("[Gamen X] Initializing v1.5.5 (Silent Barbar)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -29,7 +29,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local VirtualUser = game:GetService("VirtualUser")
+local VirtualUser = game:GetService("VirtualUser") -- Masih diload buat jaga-jaga tapi prioritas rendah
 local LocalPlayer = Players.LocalPlayer
 
 pcall(function() if VirtualUser then VirtualUser:CaptureController() end end)
@@ -45,8 +45,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.4",
-    SubTitle = "Barbar Shake",
+    Title = "Gamen X | Core v1.5.5",
+    SubTitle = "Silent Barbar",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -54,7 +54,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Barbar Click Mode Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Silent Shake Mode Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -167,62 +167,54 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ BARBAR SHAKE LOGIC ]]
--- Logika: Cari tombol -> Klik tombol. Jika tidak ketemu -> Klik Tengah Layar TERUS (Spam)
+-- [[ SILENT BARBAR SHAKE LOGIC ]]
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     
-    -- Coba cari tombol Shake UI yang asli
+    -- Cari tombol Shake UI
     local shakeUI = PlayerGui:FindFirstChild("shakeui")
     local button = nil
     
-    if shakeUI then
-        -- Coba path standard
-        if shakeUI:FindFirstChild("safezone") then
-            button = shakeUI.safezone:FindFirstChild("button")
-        end
+    if shakeUI and shakeUI:FindFirstChild("safezone") then
+        button = shakeUI.safezone:FindFirstChild("button")
     end
     
-    -- Tentukan Posisi Klik
-    local clickX, clickY
-    local inset = GuiService:GetGuiInset() 
-
+    -- Jika tombol ketemu, prioritas KLIK SILENT (Tanpa koordinat)
     if button and button.Visible then
-        -- Jika tombol ketemu dan visible, klik di tengah tombol
-        local pos = button.AbsolutePosition
-        local size = button.AbsoluteSize
-        clickX = pos.X + (size.X / 2)
-        clickY = pos.Y + (size.Y / 2) + inset.Y
+        pcall(function() button:Activate() end)
+        pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
+        
+        -- Jika tombol ada, kita fokus klik tombol itu via VIM (tanpa mouse move)
+        if VirtualInputManager then
+            local pos = button.AbsolutePosition
+            local size = button.AbsoluteSize
+            local centerX = pos.X + (size.X / 2)
+            local centerY = pos.Y + (size.Y / 2)
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+            end)
+        end
+        
     else
-        -- JIKA TOMBOL TIDAK KETEMU -> KLIK TENGAH LAYAR (Blind Mode)
-        local viewport = workspace.CurrentCamera.ViewportSize
-        clickX = viewport.X / 2
-        clickY = (viewport.Y / 2) + inset.Y
-    end
-    
-    -- EKSEKUSI KLIK (Tanpa Cek Enabled/Visible lagi, Langsung Hajar)
-    if mousemoveabs and mouse1click then
-        -- Executor Native (Delta/Hydrogen) - Paling Ampuh
-        pcall(function()
-            mousemoveabs(clickX, clickY)
-            mouse1click()
-        end)
-    elseif VirtualInputManager then
-        -- PC Standard
-        pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 1)
-            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
-        end)
-    elseif VirtualUser then
-        -- PC Legacy
-        pcall(function()
-            VirtualUser:Button1Down(Vector2.new(clickX, clickY))
-            VirtualUser:Button1Up(Vector2.new(clickX, clickY))
-        end)
-    else
-        -- Fallback terakhir
-        if button then pcall(function() button:Activate() end) end
+        -- BLIND MODE: Jika tombol tidak ketemu/belum muncul -> Spam Tengah Layar
+        -- HANYA Menggunakan VirtualInputManager (paling silent di PC)
+        -- Tidak menggunakan mousemoveabs karena menggerakkan kursor
+        if VirtualInputManager then
+            local viewport = workspace.CurrentCamera.ViewportSize
+            local centerX = viewport.X / 2
+            local centerY = viewport.Y / 2
+            
+            -- Tambahkan Inset agar pas tengah (kadang GUI offset)
+            local inset = GuiService:GetGuiInset()
+            centerY = centerY + inset.Y
+
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+            end)
+        end
     end
 end
 
@@ -236,12 +228,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.4\nMode: Barbar Shake (Always Click)."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.5\nMode: Silent Barbar Shake."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
 Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Barbar Mode)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
+Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Silent)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
 Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
