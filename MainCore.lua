@@ -1,11 +1,11 @@
--- Gamen X | Core Logic v1.7.0 (Blatant Logic Adopted)
--- Update: Mengadopsi logika Parallel Cast & Spam Reel dari request user
--- Update: Mode Blatant vs Normal
+-- Gamen X | Core Logic v1.8.3 (Full Renewed)
+-- Update: Mengganti SaveManager & InterfaceManager ke versi ActualMasterOogway
+-- Base: v1.8.2
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.7.0...")
+print("[Gamen X] Initializing v1.8.3 (Full Renewed)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -27,27 +27,31 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
--- ====== UI LIBRARY ======
+-- ====== UI LIBRARY (FLUENT RENEWED OFFICIAL) ======
 local successLib, Fluent = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+    return loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
 end)
 
-if not successLib or not Fluent then return end
+if not successLib or not Fluent then 
+    warn("[Gamen X] UI Failed: " .. tostring(Fluent))
+    return 
+end
 
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+-- UPDATE: Menggunakan Addons dari ActualMasterOogway agar kompatibel
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.7.0",
-    SubTitle = "Blatant Mode",
-    TabWidth = 160,
+    Title = "Gamen X | Core v1.8.3",
+    SubTitle = "Full Renewed",
+    TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Blatant Logic Loaded.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "UI & Managers Updated.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -155,51 +159,32 @@ end)
 local function NormalRoutine()
     if not NetworkLoaded or not Events.equip then return end
     
-    -- Cast
     pcall(function()
         Events.equip:FireServer(1)
         task.wait(0.05)
-        
-        -- Gunakan Module jika ada (Aman), atau angka magic
-        if InputControlModule then
-            Events.charge:InvokeServer(InputControlModule)
-        else
-            Events.charge:InvokeServer(1755848498.4834)
-        end
-        
+        if InputControlModule then Events.charge:InvokeServer(InputControlModule) else Events.charge:InvokeServer(1755848498.4834) end
         task.wait(0.02)
         Events.minigame:InvokeServer(1.2854545116425, 1)
     end)
     
-    -- Wait
     task.wait(Config.FishDelay)
-    
-    -- Reel
     pcall(function() Events.fishing:FireServer() end)
-    
-    -- Cooldown
     task.wait(Config.CatchDelay)
 end
 
--- [2] BLATANT ROUTINE (Adaptasi dari request)
+-- [2] BLATANT ROUTINE
 local function BlatantRoutine()
     if not NetworkLoaded or not Events.equip then return end
     
-    -- Parallel Casts Logic
     pcall(function()
         Events.equip:FireServer(1)
         task.wait(0.01)
-        
-        -- Thread 1
         task.spawn(function()
             Events.charge:InvokeServer(1755848498.4834)
             task.wait(0.01)
             Events.minigame:InvokeServer(1.2854545116425, 1)
         end)
-        
         task.wait(0.05)
-        
-        -- Thread 2
         task.spawn(function()
             Events.charge:InvokeServer(1755848498.4834)
             task.wait(0.01)
@@ -207,16 +192,8 @@ local function BlatantRoutine()
         end)
     end)
     
-    -- Wait Bite Time
     task.wait(Config.FishDelay)
-    
-    -- Spam Reel (5x)
-    for i = 1, 5 do
-        pcall(function() Events.fishing:FireServer() end)
-        task.wait(0.01)
-    end
-    
-    -- Cooldown (Setengah dari normal)
+    for i = 1, 5 do pcall(function() Events.fishing:FireServer() end) task.wait(0.01) end
     task.wait(Config.CatchDelay * 0.5)
 end
 
@@ -230,7 +207,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.7.0\nMode: Blatant Logic Added."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.8.3\nManagers Updated to Renewed."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Main Automation")
@@ -242,7 +219,7 @@ Tabs.Fishing:AddToggle("AutoFish", {
 
 Tabs.Fishing:AddToggle("BlatantMode", {
     Title="Blatant Mode", 
-    Description="Uses parallel casting & spam reel (High Risk)",
+    Description="Double cast & Spam Reel (Risky)",
     Default=Config.BlatantMode, 
     Callback=function(v) Config.BlatantMode=v end
 })
@@ -253,7 +230,6 @@ Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell All", Default=Config.AutoSe
 Tabs.Fishing:AddSection("Delay Settings")
 Tabs.Fishing:AddInput("FishD", {
     Title="Fish Delay (Bite Time)", 
-    Description="Time to wait after casting",
     Default=tostring(Config.FishDelay), 
     Numeric=true, 
     Finished=true, 
@@ -262,7 +238,6 @@ Tabs.Fishing:AddInput("FishD", {
 
 Tabs.Fishing:AddInput("CatchD", {
     Title="Catch Delay (Cooldown)", 
-    Description="Time to wait after reeling",
     Default=tostring(Config.CatchDelay), 
     Numeric=true, 
     Finished=true, 
@@ -282,9 +257,22 @@ local RodList, BaitList = {}, {}
 for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end; table.sort(RodList)
 for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end; table.sort(BaitList)
 
-Tabs.Merchant:AddDropdown("Rods", {Title="Select Rod", Values=RodList, Callback=function(v) SelectedRod=ShopData.Rods[v] end})
+Tabs.Merchant:AddDropdown("Rods", {
+    Title="Select Rod", 
+    Values=RodList, 
+    Multi=false, 
+    Default=nil,
+    Callback=function(v) SelectedRod=ShopData.Rods[v] end
+})
 Tabs.Merchant:AddButton({Title="Buy Rod", Callback=function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
-Tabs.Merchant:AddDropdown("Baits", {Title="Select Bait", Values=BaitList, Callback=function(v) SelectedBait=ShopData.Baits[v] end})
+
+Tabs.Merchant:AddDropdown("Baits", {
+    Title="Select Bait", 
+    Values=BaitList, 
+    Multi=false, 
+    Default=nil,
+    Callback=function(v) SelectedBait=ShopData.Baits[v] end
+})
 Tabs.Merchant:AddButton({Title="Buy Bait", Callback=function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
 
 -- Webhook Tab
@@ -299,6 +287,7 @@ Tabs.Webhook:AddDropdown("MinTierSelect", {
     Title = "Minimum Rarity to Notify",
     Values = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"},
     Default = Config.WebhookMinTier .. " - " .. GetTierName(Config.WebhookMinTier),
+    Multi = false,
     Callback = function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end
 })
 Tabs.Webhook:AddButton({Title="Test Webhook", Callback=function() 
@@ -308,11 +297,24 @@ end})
 
 -- Teleport Tab
 local LocationKeys = {}; for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end; table.sort(LocationKeys)
-local TargetDrop = Tabs.Teleport:AddDropdown("Target", {Title="Target", Values={}, Callback=function(v) selectedTarget=v end})
+local TargetDrop = Tabs.Teleport:AddDropdown("Target", {
+    Title="Select Target", 
+    Values={}, 
+    Multi=false,
+    Callback=function(v) selectedTarget=v end
+})
 local function GetNames() local l={}; for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end; return l end
 
-Tabs.Teleport:AddDropdown("Mode", {Title="Mode", Values={"Player", "Location"}, Callback=function(v) currentMode=v; selectedTarget=nil; TargetDrop:SetValue(nil); if v=="Player" then TargetDrop:SetValues(GetNames()) else TargetDrop:SetValues(LocationKeys) end end})
-Tabs.Teleport:AddButton({Title="Teleport", Callback=function()
+Tabs.Teleport:AddDropdown("Mode", {
+    Title="Select Mode", 
+    Values={"Player", "Location"}, 
+    Multi=false,
+    Callback=function(v) 
+        currentMode=v; selectedTarget=nil; TargetDrop:SetValue(nil)
+        if v=="Player" then TargetDrop:SetValues(GetNames()) else TargetDrop:SetValues(LocationKeys) end 
+    end
+})
+Tabs.Teleport:AddButton({Title="Teleport Now", Callback=function()
     if currentMode=="Player" then local p=Players:FindFirstChild(selectedTarget); if p and p.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=p.Character.HumanoidRootPart.CFrame end
     elseif currentMode=="Location" then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(LocationCoords[selectedTarget]) end
 end})
@@ -321,12 +323,7 @@ end})
 task.spawn(function()
     while true do
         if Config.AutoFish and NetworkLoaded then 
-            -- Pilih Logic Berdasarkan Mode
-            if Config.BlatantMode then
-                BlatantRoutine()
-            else
-                NormalRoutine()
-            end
+            if Config.BlatantMode then BlatantRoutine() else NormalRoutine() end
         else 
             task.wait(0.5) 
         end
@@ -339,6 +336,11 @@ task.spawn(function() while true do if Config.AutoSell and NetworkLoaded then pc
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("GamenX")
+SaveManager:SetFolder("GamenX/configs")
+
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
