@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v2.2.0 (Full Features Restored)
--- Update: Mengembalikan SEMUA Fitur (Auto Fish, Shop, Webhook, Teleport)
--- Update: Menggunakan Syntax Baru (CreateTab/CreateToggle) agar UI Muncul
--- Update: Extension Manager .luau Fixed
+-- Gamen X | Core Logic v2.3.0 (UI Redesign)
+-- Update: Teleport Tab diorganisir dengan Section (Player & Location Terpisah)
+-- Update: Menambahkan fitur SEARCH pada semua Dropdown
+-- Update: Tombol lebih rapi dan deskriptif
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v2.2.0 (Full)...")
+print("[Gamen X] Initializing v2.3.0 (UI Redesign)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -35,8 +35,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v2.2.0",
-    SubTitle = "Full Version",
+    Title = "Gamen X | Core v2.3.0",
+    SubTitle = "UI Redesign",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -48,7 +48,6 @@ local Options = Fluent.Options
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
--- Default Values (Safety)
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
@@ -91,7 +90,6 @@ local function HandleFishCaught(fishName, fishData)
     local tierName = GetTierName(tier)
     local tierColor = TierColors[tier] or 16777215
     
-    -- Discord
     if Config.DiscordUrl and Config.DiscordUrl ~= "" then
         SendWebhook(Config.DiscordUrl, {
             ["content"] = "",
@@ -104,7 +102,6 @@ local function HandleFishCaught(fishName, fishData)
         })
     end
     
-    -- Telegram
     if Config.TelegramToken and Config.TelegramToken ~= "" then
         SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
             ["chat_id"] = Config.TelegramChatID,
@@ -204,11 +201,11 @@ if #RodList == 0 then table.insert(RodList, "None") end
 if #BaitList == 0 then table.insert(BaitList, "None") end
 table.sort(RodList); table.sort(BaitList)
 
-local RodDrop = Tabs.Merchant:CreateDropdown("RodSelect", {Title = "Select Rod", Values = RodList, Multi = false, Default = 1})
+local RodDrop = Tabs.Merchant:CreateDropdown("RodSelect", {Title = "Select Rod", Values = RodList, Multi = false, Default = 1, Search = true})
 RodDrop:OnChanged(function(v) if ShopData.Rods then SelectedRod = ShopData.Rods[v] end end)
 Tabs.Merchant:CreateButton({Title = "Buy Rod", Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
 
-local BaitDrop = Tabs.Merchant:CreateDropdown("BaitSelect", {Title = "Select Bait", Values = BaitList, Multi = false, Default = 1})
+local BaitDrop = Tabs.Merchant:CreateDropdown("BaitSelect", {Title = "Select Bait", Values = BaitList, Multi = false, Default = 1, Search = true})
 BaitDrop:OnChanged(function(v) if ShopData.Baits then SelectedBait = ShopData.Baits[v] end end)
 Tabs.Merchant:CreateButton({Title = "Buy Bait", Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
 
@@ -223,7 +220,7 @@ local WebhookToggle = Tabs.Webhook:CreateToggle("WebhookFish", {Title="Notify Fi
 WebhookToggle:OnChanged(function() Config.WebhookFish = Options.WebhookFish.Value end)
 
 local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
-local TierDrop = Tabs.Webhook:CreateDropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1})
+local TierDrop = Tabs.Webhook:CreateDropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Search = true})
 TierDrop:OnChanged(function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end)
 
 Tabs.Webhook:CreateButton({Title="Test Webhook", Callback=function() 
@@ -231,25 +228,77 @@ Tabs.Webhook:CreateButton({Title="Test Webhook", Callback=function()
     if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTelegram OK!"}) end
 end})
 
--- === TAB: TELEPORT ===
+-- === TAB: TELEPORT (UI REDESIGN) ===
 local LocationKeys = {}
 if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
 if #LocationKeys == 0 then table.insert(LocationKeys, "None") end
 table.sort(LocationKeys)
 
-local TargetDrop = Tabs.Teleport:CreateDropdown("Target", {Title="Target", Values={}, Multi=false, Callback=function(v) selectedTarget=v end})
-local function GetNames() local l={}; for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end; return l end
+-- Fungsi untuk refresh player list
+local function UpdatePlayerList()
+    local names = {}
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer then table.insert(names, v.Name) end
+    end
+    if #names == 0 then table.insert(names, "No Players Found") end
+    return names
+end
 
-local ModeDrop = Tabs.Teleport:CreateDropdown("Mode", {Title="Mode", Values={"Player", "Location"}, Multi=false, Default=1})
-ModeDrop:OnChanged(function(v)
-    currentMode=v; selectedTarget=nil; TargetDrop:SetValue(nil)
-    if v=="Player" then TargetDrop:SetValues(GetNames()) else TargetDrop:SetValues(LocationKeys) end
-end)
+-- Section 1: Player Teleport
+Tabs.Teleport:CreateSection("Teleport to Player")
 
-Tabs.Teleport:CreateButton({Title="Teleport Now", Callback=function()
-    if currentMode=="Player" then local p=Players:FindFirstChild(selectedTarget); if p and p.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=p.Character.HumanoidRootPart.CFrame end
-    elseif currentMode=="Location" and LocationCoords then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(LocationCoords[selectedTarget]) end
-end})
+local PlayerDrop = Tabs.Teleport:CreateDropdown("PlayerTarget", {
+    Title = "Select Player",
+    Values = UpdatePlayerList(),
+    Multi = false,
+    Default = 1,
+    Search = true -- Fitur Search Aktif
+})
+
+Tabs.Teleport:CreateButton({
+    Title = "Refresh Players",
+    Description = "Click to update player list",
+    Callback = function()
+        PlayerDrop:SetValues(UpdatePlayerList())
+        Fluent:Notify({Title = "Teleport", Content = "Player list updated", Duration = 1})
+    end
+})
+
+Tabs.Teleport:CreateButton({
+    Title = "Teleport to Player",
+    Callback = function()
+        local targetName = PlayerDrop.Value
+        local p = Players:FindFirstChild(targetName)
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = p.Character.HumanoidRootPart.CFrame
+            Fluent:Notify({Title = "Teleport", Content = "Teleported to " .. targetName, Duration = 2})
+        else
+            Fluent:Notify({Title = "Error", Content = "Player not found or invalid", Duration = 2})
+        end
+    end
+})
+
+-- Section 2: Location Teleport
+Tabs.Teleport:CreateSection("Teleport to Location")
+
+local LocDrop = Tabs.Teleport:CreateDropdown("LocTarget", {
+    Title = "Select Location",
+    Values = LocationKeys,
+    Multi = false,
+    Default = 1,
+    Search = true -- Fitur Search Aktif
+})
+
+Tabs.Teleport:CreateButton({
+    Title = "Teleport to Location",
+    Callback = function()
+        local locName = LocDrop.Value
+        if LocationCoords[locName] then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(LocationCoords[locName])
+            Fluent:Notify({Title = "Teleport", Content = "Arrived at " .. locName, Duration = 2})
+        end
+    end
+})
 
 -- ====== LOOPS ======
 task.spawn(function()
