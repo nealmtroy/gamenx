@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.5.6 (True Silent Shake)
--- Update: Mbusak manipulasi kursor fisik (VirtualInputManager/VirtualUser)
--- Update: Nggunakake 'getconnections' & 'firesignal' kanggo klik mburi layar
--- Update: Bisa 'Auto Shake' sambi nggunakake mouse kanggo liyane
+-- Gamen X | Core Logic v1.5.7 (Keyboard Shake Fix)
+-- Update: Nambah Key Spam (Enter/Space) via VirtualInputManager (Silent & Ampuh)
+-- Update: Nambah Signal MouseButton1Down/Up
+-- Update: Tetep 'Silent' (Kursor ora mlaku dhewe)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.6 (True Silent)...")
+print("[Gamen X] Initializing v1.5.7 (Keyboard Shake)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -16,7 +16,7 @@ end)
 if not success or type(Data) ~= "table" then
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "Gamen X Error",
-        Text = "Gagal memuat Variables! Script dihentikan.",
+        Text = "Gagal memuat Variables!",
         Duration = 10
     })
     return
@@ -24,13 +24,11 @@ end
 
 -- ====== SERVICES ======
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
-
--- Cathetan: Kita ora nggunakake VirtualInputManager ing versi iki supaya mouse aman.
 
 -- ====== UI LIBRARY ======
 local successLib, Fluent = pcall(function()
@@ -43,8 +41,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.6",
-    SubTitle = "True Silent",
+    Title = "Gamen X | Core v1.5.7",
+    SubTitle = "Keyboard Shake",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -52,7 +50,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Silent Background Click Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Keyboard Shake Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -172,43 +170,46 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ TRUE SILENT SHAKE LOGIC ]]
--- Fungsi iki ora nggunakake mouse, nanging nembak sinyal langsung menyang tombol
+-- [[ KEYBOARD & SIGNAL SHAKE LOGIC ]]
+-- Mengombinasikan tombol Keyboard (Enter/Space) dan Signal UI
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     
     local shakeUI = PlayerGui:FindFirstChild("shakeui")
+    local button = nil
     
-    -- Pastikan UI Shake ana lan aktif
-    if shakeUI and shakeUI.Enabled then
-        local safezone = shakeUI:FindFirstChild("safezone")
-        local button = safezone and safezone:FindFirstChild("button")
+    if shakeUI and shakeUI:FindFirstChild("safezone") then
+        button = shakeUI.safezone:FindFirstChild("button")
+    end
+    
+    -- 1. SPAM ENTER & SPACE (Paling aman & silent)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+            -- task.wait(0.01)
+            -- VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            -- VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        end)
+    end
+    
+    -- 2. SPAM TOMBOL UI (Tanpa gerak kursor)
+    if button and button.Visible then
+        -- Method A: Firesignal (Exploit)
+        if firesignal then
+            pcall(function() firesignal(button.MouseButton1Click) end)
+            pcall(function() firesignal(button.MouseButton1Down) end)
+            pcall(function() firesignal(button.Activated) end)
+        end
         
-        if button and button.Visible then
-            -- METODE 1: firesignal (Paling ampuh kanggo executor)
-            -- Iki "ngapusi" game supaya mikir tombol diklik
-            if firesignal then
-                pcall(function() firesignal(button.MouseButton1Click) end)
-                pcall(function() firesignal(button.Activated) end)
-            end
-            
-            -- METODE 2: getconnections (Yen firesignal gagal)
-            -- Njaluk kabeh fungsi sing nyambung karo klik tombol, banjur diaktifake
-            if getconnections then
-                pcall(function()
-                    for _, connection in pairs(getconnections(button.MouseButton1Click)) do
-                        connection:Fire()
-                    end
-                    for _, connection in pairs(getconnections(button.Activated)) do
-                        connection:Fire()
-                    end
-                end)
-            end
-            
-            -- METODE 3: Activate (Bawaan Roblox)
-            -- Iki cara resmi, ora ngganggu kursor
-            pcall(function() button:Activate() end)
+        -- Method B: Activate (Roblox Native)
+        pcall(function() button:Activate() end)
+        
+        -- Method C: Click at Mouse Position (Tanpa gerak ke tengah)
+        -- Ini ngeklik di posisi mouse kamu sekarang, jadi technically 'shake'
+        if mouse1click then
+            pcall(function() mouse1click() end)
         end
     end
 end
@@ -223,12 +224,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.6\nMode: True Silent Shake (Background Click)."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.7\nMode: Keyboard & Signal Shake."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
 Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Silent)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
+Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Silent Key)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
 Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
