@@ -1,11 +1,11 @@
--- Gamen X | Core Logic v1.6.1 (Instant Recast)
--- Update: MENGHAPUS Catch Delay dari Loop Auto Fish
--- Alur: Cast -> FishDelay -> Catch -> Langsung Cast Ulang (Spam)
+-- Gamen X | Core Logic v1.6.2 (Barbar Spam)
+-- Update: Deskripsi UI diperjelas (Fish Delay = Waktu Sebelum Tarik)
+-- Update: Logika Catch Delay dihapus total dari loop (Murni Spam)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.6.1 (Instant Recast)...")
+print("[Gamen X] Initializing v1.6.2 (Barbar Spam)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -38,8 +38,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.6.1",
-    SubTitle = "Instant Recast",
+    Title = "Gamen X | Core v1.6.2",
+    SubTitle = "Barbar Spam",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 500),
     Acrylic = true,
@@ -47,7 +47,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Instant Recast Mode Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Barbar Mode Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -176,28 +176,28 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.6.1\nMode: Instant Recast (No Catch Delay)."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.6.2\nMode: Barbar Spam (No Wait)."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Main Automation")
-Tabs.Fishing:AddToggle("AutoFish", {Title="Enable Auto Fish", Description="Spam Cast & Catch (Fast)", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
+Tabs.Fishing:AddToggle("AutoFish", {Title="Enable Auto Fish", Description="Spam Cast & Instant Pull", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip Rod", Description="Force equip slot 1", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell All", Description="Sell items periodically", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
 
 Tabs.Fishing:AddSection("Delay Settings")
 Tabs.Fishing:AddInput("FishD", {
-    Title="Fish Delay (Bite Time)", 
-    Description="Time to wait after casting (Min: 0.5s)",
+    Title="Fish Delay (Time before Reel)", -- Disesuaikan dengan request
+    Description="Berapa detik nunggu sebelum tarik (0.1 = Langsung)",
     Default=tostring(Config.FishDelay), 
     Numeric=true, 
     Finished=true, 
     Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end
 })
 
--- Catch Delay UI (Disimpan jika ingin dipakai nanti, tapi logika di bawah tidak menggunakannya)
+-- Catch Delay UI (Opsional, logika sudah dibypass)
 Tabs.Fishing:AddInput("CatchD", {
-    Title="Catch Delay (Inactive)", 
-    Description="Disabled in this version (Instant Recast)",
+    Title="Catch Delay (Disabled)", 
+    Description="Jeda antar lemparan (Non-aktif di mode ini)",
     Default=tostring(Config.CatchDelay), 
     Numeric=true, 
     Finished=true, 
@@ -206,7 +206,7 @@ Tabs.Fishing:AddInput("CatchD", {
 
 Tabs.Fishing:AddInput("SellD", {
     Title="Sell Delay (Seconds)", 
-    Description="Interval between auto sells",
+    Description="Interval Auto Sell",
     Default=tostring(Config.SellDelay), 
     Numeric=true, 
     Finished=true, 
@@ -258,16 +258,19 @@ task.spawn(function()
     while true do
         if Config.AutoFish and NetworkLoaded then 
             CastRod()
-            -- Tunggu durasi mancing (Bite Time)
+            
+            -- [BARBAR LOGIC]
+            -- Tunggu sekian detik sesuai setting user (Fish Delay)
+            -- Kalau 0.1, berarti langsung tarik
             task.wait(Config.FishDelay)
             
             ReelIn()
-            -- [INSTANT RECAST] Catch Delay dihilangkan
-            -- Langsung putar balik ke CastRod()
+            
+            -- Catch Delay dihapus -> Langsung loop balik ke CastRod()
         else 
             task.wait(0.5) 
         end
-        task.wait(0.1) -- Yield kecil untuk mencegah crash
+        task.wait(0.1) -- Yield minimal agar tidak crash (tetap sangat cepat)
     end
 end)
 
