@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v2.1.0 (Syntax Final Fix)
--- Update: Mengganti semua 'Add...' menjadi 'Create...' (Wajib untuk Fluent Renewed)
--- Update: Menghapus penggunaan Section (Langsung ke Tab) agar anti-blank
--- Update: Perbaikan argumen tombol (Button pakai table { }, Toggle pakai ("ID", { }))
+-- Gamen X | Core Logic v2.2.0 (Full Features Restored)
+-- Update: Mengembalikan SEMUA Fitur (Auto Fish, Shop, Webhook, Teleport)
+-- Update: Menggunakan Syntax Baru (CreateTab/CreateToggle) agar UI Muncul
+-- Update: Extension Manager .luau Fixed
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v2.1.0...")
+print("[Gamen X] Initializing v2.2.0 (Full)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -14,9 +14,8 @@ local success, Data = pcall(function()
 end)
 
 if not success or type(Data) ~= "table" then
-    -- Fallback jika gagal load, supaya script TIDAK MATI
-    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
-    warn("[Gamen X] Variables fail. Using empty data.")
+    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {}, FishTierMap={}, TierColors={} }
+    warn("[Gamen X] Variables failed. Using empty defaults.")
 end
 
 -- ====== SERVICES ======
@@ -36,8 +35,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v2.1.0",
-    SubTitle = "Syntax Fix",
+    Title = "Gamen X | Core v2.2.0",
+    SubTitle = "Full Version",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -49,100 +48,71 @@ local Options = Fluent.Options
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
--- Default Values (Anti Nil)
+-- Default Values (Safety)
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
 Config.FishDelay = 2.0
 Config.SellDelay = 10.0
+Config.WebhookFish = false
+Config.WebhookMinTier = 1
 
 local ShopData = Data.ShopData or {Rods={}, Baits={}}
 local LocationCoords = Data.LocationCoords or {}
+local FishTierMap = Data.FishTierMap or {}
+local TierColors = Data.TierColors or {}
+
+local SelectedRod, SelectedBait = nil, nil
+local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
-local SelectedRod = nil
 
--- ====== TABS ======
--- Syntax Baru: Window:CreateTab
-local Tabs = {
-    Main = Window:CreateTab({ Title = "Main", Icon = "home" }),
-    Settings = Window:CreateTab({ Title = "Shop", Icon = "shopping-cart" }),
-}
+-- ====== HELPER FUNCTIONS ======
+local function GetTierName(tier)
+    local names = {[1]="Common",[2]="Uncommon",[3]="Rare",[4]="Epic",[5]="Legendary",[6]="Mythic",[7]="Secret"}
+    return names[tier] or "Unknown"
+end
 
--- === TAB: MAIN ===
-
--- Paragraph: CreateParagraph("ID", { ... })
-Tabs.Main:CreateParagraph("StatusInfo", {
-    Title = "Status",
-    Content = "Script Active (Syntax v2.1.0)"
-})
-
--- Toggle: CreateToggle("ID", { ... })
-local AutoFishToggle = Tabs.Main:CreateToggle("AutoFish", {
-    Title = "Auto Fish",
-    Description = "Spam Cast & Reel",
-    Default = false
-})
-AutoFishToggle:OnChanged(function() Config.AutoFish = Options.AutoFish.Value end)
-
-local AutoEquipToggle = Tabs.Main:CreateToggle("AutoEquip", {
-    Title = "Auto Equip",
-    Default = false
-})
-AutoEquipToggle:OnChanged(function() Config.AutoEquip = Options.AutoEquip.Value end)
-
-local AutoSellToggle = Tabs.Main:CreateToggle("AutoSell", {
-    Title = "Auto Sell",
-    Default = false
-})
-AutoSellToggle:OnChanged(function() Config.AutoSell = Options.AutoSell.Value end)
-
--- Input: CreateInput("ID", { ... })
-local FishDelayInput = Tabs.Main:CreateInput("FishDelay", {
-    Title = "Fish Delay",
-    Default = "2.0",
-    Numeric = true,
-    Finished = true,
-    Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end
-})
-
-local SellDelayInput = Tabs.Main:CreateInput("SellDelay", {
-    Title = "Sell Delay",
-    Default = "10",
-    Numeric = true,
-    Finished = true,
-    Callback = function(val) Config.SellDelay = tonumber(val) or 10 end
-})
-
--- === TAB: SETTINGS / SHOP ===
-local RodList = {}
-for k, _ in pairs(ShopData.Rods) do table.insert(RodList, k) end
-if #RodList == 0 then table.insert(RodList, "No Data") end
-table.sort(RodList)
-
--- Dropdown: CreateDropdown("ID", { ... })
-local RodDropdown = Tabs.Settings:CreateDropdown("RodSelect", {
-    Title = "Select Rod",
-    Values = RodList,
-    Multi = false,
-    Default = 1,
-})
-RodDropdown:OnChanged(function(val) SelectedRod = ShopData.Rods[val] end)
-
--- Button: CreateButton{ ... } (PERHATIKAN: Tanpa ID string di depan, pakai kurung kurawal)
-Tabs.Settings:CreateButton{
-    Title = "Buy Selected Rod",
-    Description = "Purchase from merchant",
-    Callback = function() 
-        if SelectedRod and NetworkLoaded then 
-            Events.buyRod:InvokeServer(SelectedRod)
-            Fluent:Notify({Title="Shop", Content="Buy Request Sent", Duration=2})
-        else
-            Fluent:Notify({Title="Error", Content="Wait loading / Select rod", Duration=2})
-        end
+local function SendWebhook(url, payload)
+    local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
+    if req then 
+        req({Url = url, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)}) 
     end
-}
+end
+
+local function HandleFishCaught(fishName, fishData)
+    if not Config.WebhookFish then return end
+    local fishNameStr = tostring(fishName)
+    local tier = FishTierMap[fishNameStr] or 1
+    if tier < Config.WebhookMinTier then return end
+    
+    local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "?"
+    local tierName = GetTierName(tier)
+    local tierColor = TierColors[tier] or 16777215
+    
+    -- Discord
+    if Config.DiscordUrl and Config.DiscordUrl ~= "" then
+        SendWebhook(Config.DiscordUrl, {
+            ["content"] = "",
+            ["embeds"] = {{
+                ["title"] = "🎣 Fish Caught!",
+                ["description"] = string.format("**%s**\nWeight: **%s** kg\nRarity: **%s**", fishNameStr, weight, tierName),
+                ["color"] = tierColor,
+                ["footer"] = { ["text"] = "Gamen X | " .. os.date("%X") }
+            }}
+        })
+    end
+    
+    -- Telegram
+    if Config.TelegramToken and Config.TelegramToken ~= "" then
+        SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
+            ["chat_id"] = Config.TelegramChatID,
+            ["text"] = string.format("🎣 *Gamen X Notification*\n\nFish: *%s*\nRarity: *%s*\nWeight: `%s kg`", fishNameStr, tierName, weight),
+            ["parse_mode"] = "Markdown"
+        })
+    end
+end
 
 -- ====== NETWORK LOADER ======
 task.spawn(function()
@@ -168,11 +138,18 @@ task.spawn(function()
         Events.charge = NetFolder:WaitForChild("RF/ChargeFishingRod", 2)
         Events.minigame = NetFolder:WaitForChild("RF/RequestFishingMinigameStarted", 2)
         Events.equip = NetFolder:WaitForChild("RE/EquipToolFromHotbar", 2)
+        Events.unequip = NetFolder:WaitForChild("RE/UnequipToolFromHotbar", 2)
         Events.sell = NetFolder:WaitForChild("RF/SellAllItems", 2)
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
+        Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         
+        Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
+        if Events.fishCaught then
+            Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
+        end
+
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "Game Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "System Connected!", Duration = 3})
     end)
 end)
 
@@ -193,13 +170,95 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
+-- ====== TABS DEFINITION ======
+local Tabs = {
+    Main = Window:CreateTab({ Title = "Main", Icon = "home" }),
+    Merchant = Window:CreateTab({ Title = "Shop", Icon = "shopping-cart" }),
+    Webhook = Window:CreateTab({ Title = "Webhook", Icon = "bell" }),
+    Teleport = Window:CreateTab({ Title = "Teleport", Icon = "map-pin" }),
+    Settings = Window:CreateTab({ Title = "Settings", Icon = "settings" }),
+}
+
+-- === TAB: MAIN ===
+Tabs.Main:CreateParagraph("StatusPara", {Title = "Status", Content = "Script Ready."})
+
+local AutoFishToggle = Tabs.Main:CreateToggle("AutoFish", {Title = "Auto Fish", Description = "Spam Cast & Reel", Default = false})
+AutoFishToggle:OnChanged(function() Config.AutoFish = Options.AutoFish.Value end)
+
+local AutoEquipToggle = Tabs.Main:CreateToggle("AutoEquip", {Title = "Auto Equip", Default = false})
+AutoEquipToggle:OnChanged(function() Config.AutoEquip = Options.AutoEquip.Value end)
+
+local AutoSellToggle = Tabs.Main:CreateToggle("AutoSell", {Title = "Auto Sell All", Default = false})
+AutoSellToggle:OnChanged(function() Config.AutoSell = Options.AutoSell.Value end)
+
+Tabs.Main:CreateSection("Timings")
+local FishDelayInput = Tabs.Main:CreateInput("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end})
+local CatchDelayInput = Tabs.Main:CreateInput("CatchDelay", {Title = "Catch Delay", Default = "0.5", Numeric = true, Finished = true, Callback = function(val) Config.CatchDelay = tonumber(val) or 0.5 end})
+local SellDelayInput = Tabs.Main:CreateInput("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(val) Config.SellDelay = tonumber(val) or 10 end})
+
+-- === TAB: MERCHANT ===
+local RodList, BaitList = {}, {}
+if ShopData.Rods then for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end end
+if ShopData.Baits then for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end end
+if #RodList == 0 then table.insert(RodList, "None") end
+if #BaitList == 0 then table.insert(BaitList, "None") end
+table.sort(RodList); table.sort(BaitList)
+
+local RodDrop = Tabs.Merchant:CreateDropdown("RodSelect", {Title = "Select Rod", Values = RodList, Multi = false, Default = 1})
+RodDrop:OnChanged(function(v) if ShopData.Rods then SelectedRod = ShopData.Rods[v] end end)
+Tabs.Merchant:CreateButton({Title = "Buy Rod", Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
+
+local BaitDrop = Tabs.Merchant:CreateDropdown("BaitSelect", {Title = "Select Bait", Values = BaitList, Multi = false, Default = 1})
+BaitDrop:OnChanged(function(v) if ShopData.Baits then SelectedBait = ShopData.Baits[v] end end)
+Tabs.Merchant:CreateButton({Title = "Buy Bait", Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
+
+-- === TAB: WEBHOOK ===
+Tabs.Webhook:CreateSection("Configuration")
+Tabs.Webhook:CreateInput("Discord", {Title="Discord URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
+Tabs.Webhook:CreateInput("TeleToken", {Title="Tele Token", Default="", Callback=function(v) Config.TelegramToken=v end})
+Tabs.Webhook:CreateInput("TeleID", {Title="Tele Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
+
+Tabs.Webhook:CreateSection("Settings")
+local WebhookToggle = Tabs.Webhook:CreateToggle("WebhookFish", {Title="Notify Fish Caught", Default=false})
+WebhookToggle:OnChanged(function() Config.WebhookFish = Options.WebhookFish.Value end)
+
+local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
+local TierDrop = Tabs.Webhook:CreateDropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1})
+TierDrop:OnChanged(function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end)
+
+Tabs.Webhook:CreateButton({Title="Test Webhook", Callback=function() 
+    if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="Discord OK!", color=65280}}}) end
+    if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTelegram OK!"}) end
+end})
+
+-- === TAB: TELEPORT ===
+local LocationKeys = {}
+if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
+if #LocationKeys == 0 then table.insert(LocationKeys, "None") end
+table.sort(LocationKeys)
+
+local TargetDrop = Tabs.Teleport:CreateDropdown("Target", {Title="Target", Values={}, Multi=false, Callback=function(v) selectedTarget=v end})
+local function GetNames() local l={}; for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end; return l end
+
+local ModeDrop = Tabs.Teleport:CreateDropdown("Mode", {Title="Mode", Values={"Player", "Location"}, Multi=false, Default=1})
+ModeDrop:OnChanged(function(v)
+    currentMode=v; selectedTarget=nil; TargetDrop:SetValue(nil)
+    if v=="Player" then TargetDrop:SetValues(GetNames()) else TargetDrop:SetValues(LocationKeys) end
+end)
+
+Tabs.Teleport:CreateButton({Title="Teleport Now", Callback=function()
+    if currentMode=="Player" then local p=Players:FindFirstChild(selectedTarget); if p and p.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=p.Character.HumanoidRootPart.CFrame end
+    elseif currentMode=="Location" and LocationCoords then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(LocationCoords[selectedTarget]) end
+end})
+
 -- ====== LOOPS ======
 task.spawn(function()
     while true do
         if Config.AutoFish and NetworkLoaded then
             CastRod()
-            task.wait(Config.FishDelay)
+            task.wait(Config.FishDelay or 2.0)
             ReelIn()
+            -- No Catch Delay (Instant Recast)
         else
             task.wait(0.5)
         end
@@ -207,22 +266,15 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function() 
-    while true do 
-        if Config.AutoEquip and NetworkLoaded then pcall(function() Events.equip:FireServer(1) end) end
-        task.wait(2.5) 
-    end 
-end)
-
-task.spawn(function() 
-    while true do 
-        if Config.AutoSell and NetworkLoaded then pcall(function() Events.sell:InvokeServer() end) end
-        task.wait(Config.SellDelay) 
-    end 
-end)
+task.spawn(function() while true do if Config.AutoEquip and NetworkLoaded then pcall(function() Events.equip:FireServer(1) end) end task.wait(2.5) end end)
+task.spawn(function() while true do if Config.AutoSell and NetworkLoaded then pcall(function() Events.sell:InvokeServer() end) end task.wait(Config.SellDelay or 10) end end)
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("GamenX")
+SaveManager:SetFolder("GamenX/configs")
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
