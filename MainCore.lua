@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.5.7 (Keyboard Shake Fix)
--- Update: Nambah Key Spam (Enter/Space) via VirtualInputManager (Silent & Ampuh)
--- Update: Nambah Signal MouseButton1Down/Up
--- Update: Tetep 'Silent' (Kursor ora mlaku dhewe)
+-- Gamen X | Core Logic v1.6.0 (Clean Remote Mode)
+-- Update: Menghapus Legit Mode & Auto Shake
+-- Update: Fokus pada Remote Based Auto Fish
+-- Update: Mengembalikan Input Settings untuk Delays
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.7 (Keyboard Shake)...")
+print("[Gamen X] Initializing v1.6.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -26,8 +26,6 @@ end
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 
 -- ====== UI LIBRARY ======
@@ -41,16 +39,16 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.7",
-    SubTitle = "Keyboard Shake",
+    Title = "Gamen X | Core v1.6.0",
+    SubTitle = "Remote Auto Fish",
     TabWidth = 160,
-    Size = UDim2.fromOffset(580, 520),
+    Size = UDim2.fromOffset(580, 500),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Keyboard Shake Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Clean Mode Loaded.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -141,7 +139,6 @@ task.spawn(function()
         Events.sell = NetFolder:WaitForChild("RF/SellAllItems", 2)
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
-        Events.updateState = NetFolder:WaitForChild("RF/UpdateAutoFishingState", 2)
         
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
         if Events.fishCaught then
@@ -170,50 +167,6 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ KEYBOARD & SIGNAL SHAKE LOGIC ]]
--- Mengombinasikan tombol Keyboard (Enter/Space) dan Signal UI
-local function PerformAutoShake()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
-    
-    local shakeUI = PlayerGui:FindFirstChild("shakeui")
-    local button = nil
-    
-    if shakeUI and shakeUI:FindFirstChild("safezone") then
-        button = shakeUI.safezone:FindFirstChild("button")
-    end
-    
-    -- 1. SPAM ENTER & SPACE (Paling aman & silent)
-    if VirtualInputManager then
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            -- task.wait(0.01)
-            -- VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            -- VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-        end)
-    end
-    
-    -- 2. SPAM TOMBOL UI (Tanpa gerak kursor)
-    if button and button.Visible then
-        -- Method A: Firesignal (Exploit)
-        if firesignal then
-            pcall(function() firesignal(button.MouseButton1Click) end)
-            pcall(function() firesignal(button.MouseButton1Down) end)
-            pcall(function() firesignal(button.Activated) end)
-        end
-        
-        -- Method B: Activate (Roblox Native)
-        pcall(function() button:Activate() end)
-        
-        -- Method C: Click at Mouse Position (Tanpa gerak ke tengah)
-        -- Ini ngeklik di posisi mouse kamu sekarang, jadi technically 'shake'
-        if mouse1click then
-            pcall(function() mouse1click() end)
-        end
-    end
-end
-
 -- ====== UI BUILDER ======
 local Tabs = {
     Info = Window:AddTab({ Title = "Info", Icon = "scan-face" }),
@@ -224,20 +177,41 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.7\nMode: Keyboard & Signal Shake."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.6.0\nClean Mode (Remote Only)."})
 
 -- Fishing Tab
-Tabs.Fishing:AddSection("Automation")
-Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Silent Key)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
-Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
-Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
-Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
+Tabs.Fishing:AddSection("Main Automation")
+Tabs.Fishing:AddToggle("AutoFish", {Title="Enable Auto Fish", Description="Auto Cast & Reel (Remote)", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
+Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip Rod", Description="Force equip slot 1", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
+Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell All", Description="Sell items periodically", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
 
-Tabs.Fishing:AddSection("Timings")
-Tabs.Fishing:AddInput("ShakeD", {Title="Shake Delay", Default=tostring(Config.ShakeDelay), Numeric=true, Finished=true, Callback=function(v) Config.ShakeDelay=tonumber(v) or 0.1 end})
-Tabs.Fishing:AddInput("FishD", {Title="Fish Delay", Default=tostring(Config.FishDelay), Numeric=true, Finished=true, Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end})
-Tabs.Fishing:AddInput("SellD", {Title="Sell Delay", Default=tostring(Config.SellDelay), Numeric=true, Finished=true, Callback=function(v) Config.SellDelay=tonumber(v) or 10 end})
+Tabs.Fishing:AddSection("Delay Settings")
+Tabs.Fishing:AddInput("FishD", {
+    Title="Fish Delay (Bite Time)", 
+    Description="Time to wait after casting",
+    Default=tostring(Config.FishDelay), 
+    Numeric=true, 
+    Finished=true, 
+    Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end
+})
+
+Tabs.Fishing:AddInput("CatchD", {
+    Title="Catch Delay (Cooldown)", 
+    Description="Time to wait after reeling",
+    Default=tostring(Config.CatchDelay), 
+    Numeric=true, 
+    Finished=true, 
+    Callback=function(v) Config.CatchDelay=tonumber(v) or 0.5 end
+})
+
+Tabs.Fishing:AddInput("SellD", {
+    Title="Sell Delay (Seconds)", 
+    Description="Interval between auto sells",
+    Default=tostring(Config.SellDelay), 
+    Numeric=true, 
+    Finished=true, 
+    Callback=function(v) Config.SellDelay=tonumber(v) or 10 end
+})
 
 -- Merchant Tab
 local RodList, BaitList = {}, {}
@@ -281,7 +255,6 @@ end})
 
 -- ====== LOOPS ======
 task.spawn(function() while true do if Config.AutoFish and NetworkLoaded then CastRod(); task.wait(Config.FishDelay); ReelIn(); task.wait(Config.CatchDelay) else task.wait(0.5) end task.wait(0.1) end end)
-task.spawn(function() while true do if Config.AutoShake then PerformAutoShake(); task.wait(Config.ShakeDelay) else task.wait(0.5) end end end)
 task.spawn(function() while true do if Config.AutoEquip and NetworkLoaded then pcall(function() Events.equip:FireServer(1) end) end task.wait(2.5) end end)
 task.spawn(function() while true do if Config.AutoSell and NetworkLoaded then pcall(function() Events.sell:InvokeServer() end) task.wait(Config.SellDelay) else task.wait(1) end end end)
 
