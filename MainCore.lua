@@ -1,11 +1,11 @@
--- Gamen X | Core Logic v1.6.2 (Barbar Spam)
--- Update: Deskripsi UI diperjelas (Fish Delay = Waktu Sebelum Tarik)
--- Update: Logika Catch Delay dihapus total dari loop (Murni Spam)
+-- Gamen X | Core Logic v1.7.0 (Blatant Logic Adopted)
+-- Update: Mengadopsi logika Parallel Cast & Spam Reel dari request user
+-- Update: Mode Blatant vs Normal
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.6.2 (Barbar Spam)...")
+print("[Gamen X] Initializing v1.7.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -38,16 +38,16 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.6.2",
-    SubTitle = "Barbar Spam",
+    Title = "Gamen X | Core v1.7.0",
+    SubTitle = "Blatant Mode",
     TabWidth = 160,
-    Size = UDim2.fromOffset(580, 500),
+    Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Barbar Mode Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Blatant Logic Loaded.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -149,21 +149,75 @@ task.spawn(function()
     end)
 end)
 
--- ====== LOGIC ======
-local function CastRod()
+-- ====== FISHING ROUTINES ======
+
+-- [1] NORMAL ROUTINE
+local function NormalRoutine()
     if not NetworkLoaded or not Events.equip then return end
+    
+    -- Cast
     pcall(function()
         Events.equip:FireServer(1)
         task.wait(0.05)
-        if InputControlModule then Events.charge:InvokeServer(InputControlModule) else Events.charge:InvokeServer(1755848498.4834) end
+        
+        -- Gunakan Module jika ada (Aman), atau angka magic
+        if InputControlModule then
+            Events.charge:InvokeServer(InputControlModule)
+        else
+            Events.charge:InvokeServer(1755848498.4834)
+        end
+        
         task.wait(0.02)
         Events.minigame:InvokeServer(1.2854545116425, 1)
     end)
+    
+    -- Wait
+    task.wait(Config.FishDelay)
+    
+    -- Reel
+    pcall(function() Events.fishing:FireServer() end)
+    
+    -- Cooldown
+    task.wait(Config.CatchDelay)
 end
 
-local function ReelIn()
-    if not NetworkLoaded or not Events.fishing then return end
-    pcall(function() Events.fishing:FireServer() end)
+-- [2] BLATANT ROUTINE (Adaptasi dari request)
+local function BlatantRoutine()
+    if not NetworkLoaded or not Events.equip then return end
+    
+    -- Parallel Casts Logic
+    pcall(function()
+        Events.equip:FireServer(1)
+        task.wait(0.01)
+        
+        -- Thread 1
+        task.spawn(function()
+            Events.charge:InvokeServer(1755848498.4834)
+            task.wait(0.01)
+            Events.minigame:InvokeServer(1.2854545116425, 1)
+        end)
+        
+        task.wait(0.05)
+        
+        -- Thread 2
+        task.spawn(function()
+            Events.charge:InvokeServer(1755848498.4834)
+            task.wait(0.01)
+            Events.minigame:InvokeServer(1.2854545116425, 1)
+        end)
+    end)
+    
+    -- Wait Bite Time
+    task.wait(Config.FishDelay)
+    
+    -- Spam Reel (5x)
+    for i = 1, 5 do
+        pcall(function() Events.fishing:FireServer() end)
+        task.wait(0.01)
+    end
+    
+    -- Cooldown (Setengah dari normal)
+    task.wait(Config.CatchDelay * 0.5)
 end
 
 -- ====== UI BUILDER ======
@@ -176,28 +230,39 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.6.2\nMode: Barbar Spam (No Wait)."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.7.0\nMode: Blatant Logic Added."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Main Automation")
-Tabs.Fishing:AddToggle("AutoFish", {Title="Enable Auto Fish", Description="Spam Cast & Instant Pull", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
-Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip Rod", Description="Force equip slot 1", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
-Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell All", Description="Sell items periodically", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
+Tabs.Fishing:AddToggle("AutoFish", {
+    Title="Enable Auto Fish", 
+    Default=Config.AutoFish, 
+    Callback=function(v) Config.AutoFish=v end
+})
+
+Tabs.Fishing:AddToggle("BlatantMode", {
+    Title="Blatant Mode", 
+    Description="Uses parallel casting & spam reel (High Risk)",
+    Default=Config.BlatantMode, 
+    Callback=function(v) Config.BlatantMode=v end
+})
+
+Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip Rod", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
+Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell All", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
 
 Tabs.Fishing:AddSection("Delay Settings")
 Tabs.Fishing:AddInput("FishD", {
-    Title="Fish Delay (Time before Reel)", -- Disesuaikan dengan request
-    Description="Berapa detik nunggu sebelum tarik (0.1 = Langsung)",
+    Title="Fish Delay (Bite Time)", 
+    Description="Time to wait after casting",
     Default=tostring(Config.FishDelay), 
     Numeric=true, 
     Finished=true, 
     Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end
 })
 
--- Catch Delay UI (Opsional, logika sudah dibypass)
 Tabs.Fishing:AddInput("CatchD", {
-    Title="Catch Delay (Disabled)", 
-    Description="Jeda antar lemparan (Non-aktif di mode ini)",
+    Title="Catch Delay (Cooldown)", 
+    Description="Time to wait after reeling",
     Default=tostring(Config.CatchDelay), 
     Numeric=true, 
     Finished=true, 
@@ -206,7 +271,6 @@ Tabs.Fishing:AddInput("CatchD", {
 
 Tabs.Fishing:AddInput("SellD", {
     Title="Sell Delay (Seconds)", 
-    Description="Interval Auto Sell",
     Default=tostring(Config.SellDelay), 
     Numeric=true, 
     Finished=true, 
@@ -257,20 +321,16 @@ end})
 task.spawn(function()
     while true do
         if Config.AutoFish and NetworkLoaded then 
-            CastRod()
-            
-            -- [BARBAR LOGIC]
-            -- Tunggu sekian detik sesuai setting user (Fish Delay)
-            -- Kalau 0.1, berarti langsung tarik
-            task.wait(Config.FishDelay)
-            
-            ReelIn()
-            
-            -- Catch Delay dihapus -> Langsung loop balik ke CastRod()
+            -- Pilih Logic Berdasarkan Mode
+            if Config.BlatantMode then
+                BlatantRoutine()
+            else
+                NormalRoutine()
+            end
         else 
             task.wait(0.5) 
         end
-        task.wait(0.1) -- Yield minimal agar tidak crash (tetap sangat cepat)
+        task.wait(0.1)
     end
 end)
 
