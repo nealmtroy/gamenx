@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.5.2 (Universal Input Fix)
--- Update: Nambah Support kanggo 'mousemoveabs' (Executor Native)
--- Update: Ndandani koordinat layar (GuiInset Fix) supaya ora meleset
--- Update: Prioritas Klik (VIM -> VirtualUser -> InputService -> Activate)
+-- Gamen X | Core Logic v1.5.4 (Barbar Shake Mode)
+-- Update: Auto Shake sekarang SPAM KLIK terus menerus (Blind Mode)
+-- Update: Tidak menunggu UI muncul (Sesuai request "jangan nunggu minigame")
+-- Update: Target klik prioritas tombol, jika tidak ada -> Tengah Layar
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.2...")
+print("[Gamen X] Initializing v1.5.4 (Barbar Mode)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -27,15 +27,12 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService") -- PENTING: Kanggo ngitung offset layar
+local GuiService = game:GetService("GuiService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
--- Aktivasi VirtualUser (Yen support)
-pcall(function() 
-    if VirtualUser then VirtualUser:CaptureController() end
-end)
+pcall(function() if VirtualUser then VirtualUser:CaptureController() end end)
 
 -- ====== UI LIBRARY ======
 local successLib, Fluent = pcall(function()
@@ -48,8 +45,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.2",
-    SubTitle = "Universal Input",
+    Title = "Gamen X | Core v1.5.4",
+    SubTitle = "Barbar Shake",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -57,7 +54,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Universal Shake Loaded.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Barbar Click Mode Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -81,12 +78,7 @@ end
 local function SendWebhook(url, payload)
     local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
     if req then 
-        req({
-            Url = url, 
-            Method = "POST", 
-            Headers = {["Content-Type"] = "application/json"}, 
-            Body = HttpService:JSONEncode(payload)
-        }) 
+        req({Url = url, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)}) 
     end
 end
 
@@ -151,9 +143,7 @@ task.spawn(function()
         Events.updateState = NetFolder:WaitForChild("RF/UpdateAutoFishingState", 2)
         
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
-        if Events.fishCaught then
-            Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
-        end
+        if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
 
         NetworkLoaded = true
         Fluent:Notify({Title = "Connected", Content = "Gamen X Connected!", Duration = 3})
@@ -177,58 +167,62 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ UNIVERSAL SHAKE FUNCTION ]]
--- Fungsi iki bakal nyoba kabeh cara supaya mouse gerak lan ngeklik
+-- [[ BARBAR SHAKE LOGIC ]]
+-- Logika: Cari tombol -> Klik tombol. Jika tidak ketemu -> Klik Tengah Layar TERUS (Spam)
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
-    local shakeUI = PlayerGui:FindFirstChild("shakeui")
     
-    if shakeUI and shakeUI.Enabled then
-        local safezone = shakeUI:FindFirstChild("safezone")
-        local button = safezone and safezone:FindFirstChild("button")
-        
-        if button and button.Visible then
-            -- Hitung Posisi Tengah Tombol
-            local pos = button.AbsolutePosition
-            local size = button.AbsoluteSize
-            
-            -- Inset: Kanggo ngoreksi posisi mouse amarga ana TopBar Roblox (biasane 36px)
-            local inset = GuiService:GetGuiInset() 
-            
-            local centerX = pos.X + (size.X / 2)
-            local centerY = pos.Y + (size.Y / 2) + inset.Y -- Ditambah Inset supaya pas
-            
-            -- METODE 1: Executor Native (Paling Apik kanggo HP/Delta)
-            if mousemoveabs and mouse1click then
-                pcall(function()
-                    mousemoveabs(centerX, centerY)
-                    mouse1click()
-                end)
-            
-            -- METODE 2: VirtualInputManager (PC Standard)
-            elseif VirtualInputManager then
-                pcall(function()
-                    VirtualInputManager:SendMouseMoveEvent(centerX, centerY, game)
-                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-                    task.wait() -- Jeda sithik banget
-                    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-                end)
-            
-            -- METODE 3: VirtualUser (PC Legacy)
-            elseif VirtualUser then
-                pcall(function()
-                    VirtualUser:MoveMouse(Vector2.new(centerX, centerY))
-                    VirtualUser:Button1Down(Vector2.new(centerX, centerY))
-                    task.wait()
-                    VirtualUser:Button1Up(Vector2.new(centerX, centerY))
-                end)
-            end
-            
-            -- METODE CADANGAN: Yen kursor gagal, paksa klik tombol
-            pcall(function() button:Activate() end)
-            pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
+    -- Coba cari tombol Shake UI yang asli
+    local shakeUI = PlayerGui:FindFirstChild("shakeui")
+    local button = nil
+    
+    if shakeUI then
+        -- Coba path standard
+        if shakeUI:FindFirstChild("safezone") then
+            button = shakeUI.safezone:FindFirstChild("button")
         end
+    end
+    
+    -- Tentukan Posisi Klik
+    local clickX, clickY
+    local inset = GuiService:GetGuiInset() 
+
+    if button and button.Visible then
+        -- Jika tombol ketemu dan visible, klik di tengah tombol
+        local pos = button.AbsolutePosition
+        local size = button.AbsoluteSize
+        clickX = pos.X + (size.X / 2)
+        clickY = pos.Y + (size.Y / 2) + inset.Y
+    else
+        -- JIKA TOMBOL TIDAK KETEMU -> KLIK TENGAH LAYAR (Blind Mode)
+        local viewport = workspace.CurrentCamera.ViewportSize
+        clickX = viewport.X / 2
+        clickY = (viewport.Y / 2) + inset.Y
+    end
+    
+    -- EKSEKUSI KLIK (Tanpa Cek Enabled/Visible lagi, Langsung Hajar)
+    if mousemoveabs and mouse1click then
+        -- Executor Native (Delta/Hydrogen) - Paling Ampuh
+        pcall(function()
+            mousemoveabs(clickX, clickY)
+            mouse1click()
+        end)
+    elseif VirtualInputManager then
+        -- PC Standard
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 1)
+            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 1)
+        end)
+    elseif VirtualUser then
+        -- PC Legacy
+        pcall(function()
+            VirtualUser:Button1Down(Vector2.new(clickX, clickY))
+            VirtualUser:Button1Up(Vector2.new(clickX, clickY))
+        end)
+    else
+        -- Fallback terakhir
+        if button then pcall(function() button:Activate() end) end
     end
 end
 
@@ -242,12 +236,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.2\nUpdated: Universal Input Fix."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.4\nMode: Barbar Shake (Always Click)."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
 Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Active Cursor)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
+Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Barbar Mode)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
 Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
