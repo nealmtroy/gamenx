@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.9.1 (UI Structure Fix)
--- Update: Memperbaiki struktur AddTab dan AddSection
--- Update: Menghapus SaveManager/InterfaceManager sementara (Raw UI Only)
--- Update: Memastikan Tab terpilih secara otomatis
+-- Gamen X | Core Logic v2.1.0 (Syntax Final Fix)
+-- Update: Mengganti semua 'Add...' menjadi 'Create...' (Wajib untuk Fluent Renewed)
+-- Update: Menghapus penggunaan Section (Langsung ke Tab) agar anti-blank
+-- Update: Perbaikan argumen tombol (Button pakai table { }, Toggle pakai ("ID", { }))
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.9.1...")
+print("[Gamen X] Initializing v2.1.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -14,7 +14,9 @@ local success, Data = pcall(function()
 end)
 
 if not success or type(Data) ~= "table" then
+    -- Fallback jika gagal load, supaya script TIDAK MATI
     Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
+    warn("[Gamen X] Variables fail. Using empty data.")
 end
 
 -- ====== SERVICES ======
@@ -23,35 +25,36 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
--- ====== UI LIBRARY ======
+-- ====== UI LIBRARY (FLUENT RENEWED) ======
 local successLib, Fluent = pcall(function()
     return loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
 end)
 
-if not successLib or not Fluent then 
-    warn("[Gamen X] UI Failed!")
-    return 
-end
+if not successLib or not Fluent then return end
 
--- Membuat Window
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/SaveManager.luau"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.9.1",
-    SubTitle = "UI Fix",
+    Title = "Gamen X | Core v2.1.0",
+    SubTitle = "Syntax Fix",
     TabWidth = 120,
-    Size = UDim2.fromOffset(580, 460),
+    Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
+local Options = Fluent.Options
+
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
--- Default Config (Safety)
+-- Default Values (Anti Nil)
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
 Config.FishDelay = 2.0
-Config.SellDelay = 10
+Config.SellDelay = 10.0
 
 local ShopData = Data.ShopData or {Rods={}, Baits={}}
 local LocationCoords = Data.LocationCoords or {}
@@ -59,6 +62,87 @@ local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
 local SelectedRod = nil
+
+-- ====== TABS ======
+-- Syntax Baru: Window:CreateTab
+local Tabs = {
+    Main = Window:CreateTab({ Title = "Main", Icon = "home" }),
+    Settings = Window:CreateTab({ Title = "Shop", Icon = "shopping-cart" }),
+}
+
+-- === TAB: MAIN ===
+
+-- Paragraph: CreateParagraph("ID", { ... })
+Tabs.Main:CreateParagraph("StatusInfo", {
+    Title = "Status",
+    Content = "Script Active (Syntax v2.1.0)"
+})
+
+-- Toggle: CreateToggle("ID", { ... })
+local AutoFishToggle = Tabs.Main:CreateToggle("AutoFish", {
+    Title = "Auto Fish",
+    Description = "Spam Cast & Reel",
+    Default = false
+})
+AutoFishToggle:OnChanged(function() Config.AutoFish = Options.AutoFish.Value end)
+
+local AutoEquipToggle = Tabs.Main:CreateToggle("AutoEquip", {
+    Title = "Auto Equip",
+    Default = false
+})
+AutoEquipToggle:OnChanged(function() Config.AutoEquip = Options.AutoEquip.Value end)
+
+local AutoSellToggle = Tabs.Main:CreateToggle("AutoSell", {
+    Title = "Auto Sell",
+    Default = false
+})
+AutoSellToggle:OnChanged(function() Config.AutoSell = Options.AutoSell.Value end)
+
+-- Input: CreateInput("ID", { ... })
+local FishDelayInput = Tabs.Main:CreateInput("FishDelay", {
+    Title = "Fish Delay",
+    Default = "2.0",
+    Numeric = true,
+    Finished = true,
+    Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end
+})
+
+local SellDelayInput = Tabs.Main:CreateInput("SellDelay", {
+    Title = "Sell Delay",
+    Default = "10",
+    Numeric = true,
+    Finished = true,
+    Callback = function(val) Config.SellDelay = tonumber(val) or 10 end
+})
+
+-- === TAB: SETTINGS / SHOP ===
+local RodList = {}
+for k, _ in pairs(ShopData.Rods) do table.insert(RodList, k) end
+if #RodList == 0 then table.insert(RodList, "No Data") end
+table.sort(RodList)
+
+-- Dropdown: CreateDropdown("ID", { ... })
+local RodDropdown = Tabs.Settings:CreateDropdown("RodSelect", {
+    Title = "Select Rod",
+    Values = RodList,
+    Multi = false,
+    Default = 1,
+})
+RodDropdown:OnChanged(function(val) SelectedRod = ShopData.Rods[val] end)
+
+-- Button: CreateButton{ ... } (PERHATIKAN: Tanpa ID string di depan, pakai kurung kurawal)
+Tabs.Settings:CreateButton{
+    Title = "Buy Selected Rod",
+    Description = "Purchase from merchant",
+    Callback = function() 
+        if SelectedRod and NetworkLoaded then 
+            Events.buyRod:InvokeServer(SelectedRod)
+            Fluent:Notify({Title="Shop", Content="Buy Request Sent", Duration=2})
+        else
+            Fluent:Notify({Title="Error", Content="Wait loading / Select rod", Duration=2})
+        end
+    end
+}
 
 -- ====== NETWORK LOADER ======
 task.spawn(function()
@@ -69,11 +153,12 @@ task.spawn(function()
         local Index = Packages:WaitForChild("_Index", 5)
         if not Index then return end
         
-        local NetPackage = nil
-        for _, child in pairs(Index:GetChildren()) do
-            if child.Name:find("sleitnick_net") then NetPackage = child break end
+        local NetPackage = Index:FindFirstChild("sleitnick_net@0.2.0")
+        if not NetPackage then
+            for _, child in pairs(Index:GetChildren()) do
+                if child.Name:find("sleitnick_net") then NetPackage = child break end
+            end
         end
-        if not NetPackage then NetPackage = Index:FindFirstChild("sleitnick_net@0.2.0") end
         if not NetPackage then return end
 
         local NetFolder = NetPackage:WaitForChild("net", 5)
@@ -87,7 +172,7 @@ task.spawn(function()
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
         
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "Game Connected!", Duration = 3})
     end)
 end)
 
@@ -107,83 +192,6 @@ local function ReelIn()
     if not NetworkLoaded or not Events.fishing then return end
     pcall(function() Events.fishing:FireServer() end)
 end
-
--- ====== TABS DEFINITION (STRUKTUR BARU) ======
--- Kita buat Tabs satu per satu untuk memastikan tidak ada syntax error dalam table
-
-local Tabs = {
-    Main = Window:AddTab({ Title = "Main", Icon = "home" }),
-    Settings = Window:AddTab({ Title = "Shop", Icon = "shopping-cart" }),
-}
-
--- === TAB: MAIN CONTENT ===
--- Gunakan pcall di setiap elemen UI agar jika satu error, yang lain tetap muncul
-
-pcall(function()
-    Tabs.Main:AddParagraph({
-        Title = "Gamen X Status",
-        Content = "Script Active. Select features below."
-    })
-end)
-
-pcall(function()
-    Tabs.Main:AddToggle("AutoFish", {
-        Title = "Auto Fish",
-        Description = "Spam Cast & Reel (Barbar)",
-        Default = false,
-        Callback = function(state) Config.AutoFish = state end
-    })
-end)
-
-pcall(function()
-    Tabs.Main:AddToggle("AutoEquip", {
-        Title = "Auto Equip",
-        Default = false,
-        Callback = function(state) Config.AutoEquip = state end
-    })
-end)
-
-pcall(function()
-    Tabs.Main:AddToggle("AutoSell", {
-        Title = "Auto Sell",
-        Default = false,
-        Callback = function(state) Config.AutoSell = state end
-    })
-end)
-
-pcall(function()
-    Tabs.Main:AddInput("FishDelay", {
-        Title = "Fish Delay (Bite Time)",
-        Default = "2.0",
-        Numeric = true,
-        Finished = true,
-        Callback = function(value) Config.FishDelay = tonumber(value) or 2.0 end
-    })
-end)
-
--- === TAB: SETTINGS / SHOP CONTENT ===
-local RodList = {}
-for k, _ in pairs(ShopData.Rods) do table.insert(RodList, k) end
-if #RodList == 0 then table.insert(RodList, "No Data") end
-
-pcall(function()
-    Tabs.Settings:AddDropdown("RodSelect", {
-        Title = "Select Rod",
-        Values = RodList,
-        Multi = false,
-        Default = nil,
-        Callback = function(v) SelectedRod = ShopData.Rods[v] end
-    })
-end)
-
-pcall(function()
-    Tabs.Settings:AddButton({
-        Title = "Buy Rod",
-        Callback = function() 
-            if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end 
-        end
-    })
-end)
 
 -- ====== LOOPS ======
 task.spawn(function()
@@ -213,7 +221,9 @@ task.spawn(function()
     end 
 end)
 
--- Select Tab Terakhir (Delay sedikit agar UI render dulu)
-task.delay(1, function()
-    Window:SelectTab(1)
-end)
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
