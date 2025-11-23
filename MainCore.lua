@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.5.5 (Silent Barbar Mode)
--- Update: Menghapus pergerakan kursor (No mousemoveabs/MoveMouse)
--- Update: Tetap Barbar (Spam Klik) tapi lebih 'Silent'
--- Update: Prioritas klik via Signal/Activate jika tombol terdeteksi
+-- Gamen X | Core Logic v1.5.6 (True Silent Shake)
+-- Update: Mbusak manipulasi kursor fisik (VirtualInputManager/VirtualUser)
+-- Update: Nggunakake 'getconnections' & 'firesignal' kanggo klik mburi layar
+-- Update: Bisa 'Auto Shake' sambi nggunakake mouse kanggo liyane
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.5 (Silent Barbar)...")
+print("[Gamen X] Initializing v1.5.6 (True Silent)...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -28,11 +28,9 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local VirtualUser = game:GetService("VirtualUser") -- Masih diload buat jaga-jaga tapi prioritas rendah
 local LocalPlayer = Players.LocalPlayer
 
-pcall(function() if VirtualUser then VirtualUser:CaptureController() end end)
+-- Cathetan: Kita ora nggunakake VirtualInputManager ing versi iki supaya mouse aman.
 
 -- ====== UI LIBRARY ======
 local successLib, Fluent = pcall(function()
@@ -45,8 +43,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.5",
-    SubTitle = "Silent Barbar",
+    Title = "Gamen X | Core v1.5.6",
+    SubTitle = "True Silent",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -54,7 +52,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Silent Shake Mode Active.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Silent Background Click Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -78,7 +76,12 @@ end
 local function SendWebhook(url, payload)
     local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
     if req then 
-        req({Url = url, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(payload)}) 
+        req({
+            Url = url, 
+            Method = "POST", 
+            Headers = {["Content-Type"] = "application/json"}, 
+            Body = HttpService:JSONEncode(payload)
+        }) 
     end
 end
 
@@ -143,7 +146,9 @@ task.spawn(function()
         Events.updateState = NetFolder:WaitForChild("RF/UpdateAutoFishingState", 2)
         
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
-        if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
+        if Events.fishCaught then
+            Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
+        end
 
         NetworkLoaded = true
         Fluent:Notify({Title = "Connected", Content = "Gamen X Connected!", Duration = 3})
@@ -167,53 +172,43 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ SILENT BARBAR SHAKE LOGIC ]]
+-- [[ TRUE SILENT SHAKE LOGIC ]]
+-- Fungsi iki ora nggunakake mouse, nanging nembak sinyal langsung menyang tombol
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     
-    -- Cari tombol Shake UI
     local shakeUI = PlayerGui:FindFirstChild("shakeui")
-    local button = nil
     
-    if shakeUI and shakeUI:FindFirstChild("safezone") then
-        button = shakeUI.safezone:FindFirstChild("button")
-    end
-    
-    -- Jika tombol ketemu, prioritas KLIK SILENT (Tanpa koordinat)
-    if button and button.Visible then
-        pcall(function() button:Activate() end)
-        pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
+    -- Pastikan UI Shake ana lan aktif
+    if shakeUI and shakeUI.Enabled then
+        local safezone = shakeUI:FindFirstChild("safezone")
+        local button = safezone and safezone:FindFirstChild("button")
         
-        -- Jika tombol ada, kita fokus klik tombol itu via VIM (tanpa mouse move)
-        if VirtualInputManager then
-            local pos = button.AbsolutePosition
-            local size = button.AbsoluteSize
-            local centerX = pos.X + (size.X / 2)
-            local centerY = pos.Y + (size.Y / 2)
-            pcall(function()
-                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-            end)
-        end
-        
-    else
-        -- BLIND MODE: Jika tombol tidak ketemu/belum muncul -> Spam Tengah Layar
-        -- HANYA Menggunakan VirtualInputManager (paling silent di PC)
-        -- Tidak menggunakan mousemoveabs karena menggerakkan kursor
-        if VirtualInputManager then
-            local viewport = workspace.CurrentCamera.ViewportSize
-            local centerX = viewport.X / 2
-            local centerY = viewport.Y / 2
+        if button and button.Visible then
+            -- METODE 1: firesignal (Paling ampuh kanggo executor)
+            -- Iki "ngapusi" game supaya mikir tombol diklik
+            if firesignal then
+                pcall(function() firesignal(button.MouseButton1Click) end)
+                pcall(function() firesignal(button.Activated) end)
+            end
             
-            -- Tambahkan Inset agar pas tengah (kadang GUI offset)
-            local inset = GuiService:GetGuiInset()
-            centerY = centerY + inset.Y
-
-            pcall(function()
-                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-                VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
-            end)
+            -- METODE 2: getconnections (Yen firesignal gagal)
+            -- Njaluk kabeh fungsi sing nyambung karo klik tombol, banjur diaktifake
+            if getconnections then
+                pcall(function()
+                    for _, connection in pairs(getconnections(button.MouseButton1Click)) do
+                        connection:Fire()
+                    end
+                    for _, connection in pairs(getconnections(button.Activated)) do
+                        connection:Fire()
+                    end
+                end)
+            end
+            
+            -- METODE 3: Activate (Bawaan Roblox)
+            -- Iki cara resmi, ora ngganggu kursor
+            pcall(function() button:Activate() end)
         end
     end
 end
@@ -228,7 +223,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.5\nMode: Silent Barbar Shake."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.6\nMode: True Silent Shake (Background Click)."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
