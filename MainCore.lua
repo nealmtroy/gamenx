@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v2.3.0 (UI Redesign)
--- Update: Teleport Tab diorganisir dengan Section (Player & Location Terpisah)
--- Update: Menambahkan fitur SEARCH pada semua Dropdown
--- Update: Tombol lebih rapi dan deskriptif
+-- Gamen X | Core Logic v2.4.0 (Final UI Fix)
+-- Update: Menambahkan 'Section' (Wajib agar UI tidak blank)
+-- Update: Mengaktifkan fitur SEARCH di Dropdown (Searchable = true)
+-- Update: Logika Teleport dinamis (Player/Location)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v2.3.0 (UI Redesign)...")
+print("[Gamen X] Initializing v2.4.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -14,8 +14,8 @@ local success, Data = pcall(function()
 end)
 
 if not success or type(Data) ~= "table" then
-    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {}, FishTierMap={}, TierColors={} }
-    warn("[Gamen X] Variables failed. Using empty defaults.")
+    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
+    warn("[Gamen X] Variables failed. Using defaults.")
 end
 
 -- ====== SERVICES ======
@@ -24,7 +24,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
--- ====== UI LIBRARY (FLUENT RENEWED) ======
+-- ====== UI LIBRARY ======
 local successLib, Fluent = pcall(function()
     return loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
 end)
@@ -35,8 +35,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v2.3.0",
-    SubTitle = "UI Redesign",
+    Title = "Gamen X | Core v2.4.0",
+    SubTitle = "Search & UI Fix",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -48,6 +48,7 @@ local Options = Fluent.Options
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
+-- Default Safety
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
@@ -167,135 +168,205 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- ====== TABS DEFINITION ======
+-- ====== TABS ======
 local Tabs = {
-    Main = Window:CreateTab({ Title = "Main", Icon = "home" }),
-    Merchant = Window:CreateTab({ Title = "Shop", Icon = "shopping-cart" }),
-    Webhook = Window:CreateTab({ Title = "Webhook", Icon = "bell" }),
-    Teleport = Window:CreateTab({ Title = "Teleport", Icon = "map-pin" }),
-    Settings = Window:CreateTab({ Title = "Settings", Icon = "settings" }),
+    Main = Window:AddTab({ Title = "Main", Icon = "home" }),
+    Merchant = Window:AddTab({ Title = "Shop", Icon = "shopping-cart" }),
+    Webhook = Window:AddTab({ Title = "Webhook", Icon = "bell" }),
+    Teleport = Window:AddTab({ Title = "Teleport", Icon = "map-pin" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
 }
 
 -- === TAB: MAIN ===
-Tabs.Main:CreateParagraph("StatusPara", {Title = "Status", Content = "Script Ready."})
+-- PENTING: Gunakan AddSection sebelum menambahkan elemen lain!
+local MainSection = Tabs.Main:AddSection("Automation Features")
 
-local AutoFishToggle = Tabs.Main:CreateToggle("AutoFish", {Title = "Auto Fish", Description = "Spam Cast & Reel", Default = false})
-AutoFishToggle:OnChanged(function() Config.AutoFish = Options.AutoFish.Value end)
+MainSection:AddToggle("AutoFish", {
+    Title = "Enable Auto Fish",
+    Description = "Spam Cast & Reel (Barbar Mode)",
+    Default = false,
+    Callback = function(state) Config.AutoFish = state end
+})
 
-local AutoEquipToggle = Tabs.Main:CreateToggle("AutoEquip", {Title = "Auto Equip", Default = false})
-AutoEquipToggle:OnChanged(function() Config.AutoEquip = Options.AutoEquip.Value end)
+MainSection:AddToggle("AutoEquip", {
+    Title = "Auto Equip Rod",
+    Default = false,
+    Callback = function(state) Config.AutoEquip = state end
+})
 
-local AutoSellToggle = Tabs.Main:CreateToggle("AutoSell", {Title = "Auto Sell All", Default = false})
-AutoSellToggle:OnChanged(function() Config.AutoSell = Options.AutoSell.Value end)
+MainSection:AddToggle("AutoSell", {
+    Title = "Auto Sell All",
+    Default = false,
+    Callback = function(state) Config.AutoSell = state end
+})
 
-Tabs.Main:CreateSection("Timings")
-local FishDelayInput = Tabs.Main:CreateInput("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end})
-local CatchDelayInput = Tabs.Main:CreateInput("CatchDelay", {Title = "Catch Delay", Default = "0.5", Numeric = true, Finished = true, Callback = function(val) Config.CatchDelay = tonumber(val) or 0.5 end})
-local SellDelayInput = Tabs.Main:CreateInput("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(val) Config.SellDelay = tonumber(val) or 10 end})
+local TimingSection = Tabs.Main:AddSection("Delays (Seconds)")
+
+TimingSection:AddInput("FishDelay", {
+    Title = "Fish Delay (Bite Time)",
+    Description = "Time before reeling in",
+    Default = "2.0",
+    Numeric = true,
+    Finished = true,
+    Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end
+})
+
+TimingSection:AddInput("CatchDelay", {
+    Title = "Catch Delay (Cooldown)",
+    Default = "0.5",
+    Numeric = true,
+    Finished = true,
+    Callback = function(val) Config.CatchDelay = tonumber(val) or 0.5 end
+})
+
+TimingSection:AddInput("SellDelay", {
+    Title = "Sell Delay",
+    Default = "10",
+    Numeric = true,
+    Finished = true,
+    Callback = function(val) Config.SellDelay = tonumber(val) or 10 end
+})
 
 -- === TAB: MERCHANT ===
-local RodList, BaitList = {}, {}
+local ShopSection = Tabs.Merchant:AddSection("Item Shop")
+
+local RodList = {}
 if ShopData.Rods then for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end end
+table.sort(RodList)
+
+ShopSection:AddDropdown("RodSelect", {
+    Title = "Select Rod",
+    Values = RodList,
+    Multi = false,
+    Default = 1,
+    Searchable = true -- FITUR SEARCH DIAKTIFKAN
+})
+Options.RodSelect:OnChanged(function()
+    if ShopData.Rods then SelectedRod = ShopData.Rods[Options.RodSelect.Value] end
+end)
+
+ShopSection:AddButton({
+    Title = "Buy Selected Rod",
+    Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end
+})
+
+local BaitList = {}
 if ShopData.Baits then for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end end
-if #RodList == 0 then table.insert(RodList, "None") end
-if #BaitList == 0 then table.insert(BaitList, "None") end
-table.sort(RodList); table.sort(BaitList)
+table.sort(BaitList)
 
-local RodDrop = Tabs.Merchant:CreateDropdown("RodSelect", {Title = "Select Rod", Values = RodList, Multi = false, Default = 1, Search = true})
-RodDrop:OnChanged(function(v) if ShopData.Rods then SelectedRod = ShopData.Rods[v] end end)
-Tabs.Merchant:CreateButton({Title = "Buy Rod", Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
+ShopSection:AddDropdown("BaitSelect", {
+    Title = "Select Bait",
+    Values = BaitList,
+    Multi = false,
+    Default = 1,
+    Searchable = true -- FITUR SEARCH DIAKTIFKAN
+})
+Options.BaitSelect:OnChanged(function()
+    if ShopData.Baits then SelectedBait = ShopData.Baits[Options.BaitSelect.Value] end
+end)
 
-local BaitDrop = Tabs.Merchant:CreateDropdown("BaitSelect", {Title = "Select Bait", Values = BaitList, Multi = false, Default = 1, Search = true})
-BaitDrop:OnChanged(function(v) if ShopData.Baits then SelectedBait = ShopData.Baits[v] end end)
-Tabs.Merchant:CreateButton({Title = "Buy Bait", Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
+ShopSection:AddButton({
+    Title = "Buy Selected Bait",
+    Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end
+})
 
 -- === TAB: WEBHOOK ===
-Tabs.Webhook:CreateSection("Configuration")
-Tabs.Webhook:CreateInput("Discord", {Title="Discord URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
-Tabs.Webhook:CreateInput("TeleToken", {Title="Tele Token", Default="", Callback=function(v) Config.TelegramToken=v end})
-Tabs.Webhook:CreateInput("TeleID", {Title="Tele Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
+local WebhookConfig = Tabs.Webhook:AddSection("Configuration")
+WebhookConfig:AddInput("Discord", {Title="Discord URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
+WebhookConfig:AddInput("TeleToken", {Title="Tele Token", Default="", Callback=function(v) Config.TelegramToken=v end})
+WebhookConfig:AddInput("TeleID", {Title="Tele Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
 
-Tabs.Webhook:CreateSection("Settings")
-local WebhookToggle = Tabs.Webhook:CreateToggle("WebhookFish", {Title="Notify Fish Caught", Default=false})
-WebhookToggle:OnChanged(function() Config.WebhookFish = Options.WebhookFish.Value end)
+local WebhookSettings = Tabs.Webhook:AddSection("Settings")
+WebhookSettings:AddToggle("WebhookFish", {Title="Notify Fish Caught", Default=false, Callback=function(v) Config.WebhookFish=v end})
 
 local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
-local TierDrop = Tabs.Webhook:CreateDropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Search = true})
-TierDrop:OnChanged(function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end)
+WebhookSettings:AddDropdown("MinTier", {
+    Title="Min Rarity", 
+    Values=TierList, 
+    Multi=false, 
+    Default=1, 
+    Searchable = true
+})
+Options.MinTier:OnChanged(function()
+    Config.WebhookMinTier = tonumber(string.sub(Options.MinTier.Value, 1, 1)) 
+end)
 
-Tabs.Webhook:CreateButton({Title="Test Webhook", Callback=function() 
+WebhookSettings:AddButton({Title="Test Webhook", Callback=function() 
     if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="Discord OK!", color=65280}}}) end
     if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTelegram OK!"}) end
 end})
 
--- === TAB: TELEPORT (UI REDESIGN) ===
+-- === TAB: TELEPORT (ORGANIZED) ===
+local TeleportSection = Tabs.Teleport:AddSection("Teleport Manager")
+
 local LocationKeys = {}
 if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
-if #LocationKeys == 0 then table.insert(LocationKeys, "None") end
+if #LocationKeys == 0 then table.insert(LocationKeys, "No Data") end
 table.sort(LocationKeys)
 
--- Fungsi untuk refresh player list
-local function UpdatePlayerList()
-    local names = {}
-    for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer then table.insert(names, v.Name) end
-    end
-    if #names == 0 then table.insert(names, "No Players Found") end
-    return names
-end
-
--- Section 1: Player Teleport
-Tabs.Teleport:CreateSection("Teleport to Player")
-
-local PlayerDrop = Tabs.Teleport:CreateDropdown("PlayerTarget", {
-    Title = "Select Player",
-    Values = UpdatePlayerList(),
+-- Dropdown Mode
+local ModeDrop = TeleportSection:AddDropdown("TeleportMode", {
+    Title = "Teleport Mode",
+    Values = {"Player", "Location"},
     Multi = false,
     Default = 1,
-    Search = true -- Fitur Search Aktif
 })
 
-Tabs.Teleport:CreateButton({
-    Title = "Refresh Players",
-    Description = "Click to update player list",
-    Callback = function()
-        PlayerDrop:SetValues(UpdatePlayerList())
-        Fluent:Notify({Title = "Teleport", Content = "Player list updated", Duration = 1})
+-- Dropdown Target (Dinamis)
+local TargetDrop = TeleportSection:AddDropdown("TeleportTarget", {
+    Title = "Select Target",
+    Values = {"Select Mode First"},
+    Multi = false,
+    Default = 1,
+    Searchable = true -- SEARCHABLE DIAKTIFKAN
+})
+
+-- Logic Update Dropdown saat Mode berubah
+ModeDrop:OnChanged(function()
+    currentMode = ModeDrop.Value
+    TargetDrop:SetValue(nil)
+    
+    if currentMode == "Player" then
+        local names = {}
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= LocalPlayer then table.insert(names, v.Name) end
+        end
+        if #names == 0 then names = {"No Players Found"} end
+        TargetDrop:SetValues(names)
+    else
+        TargetDrop:SetValues(LocationKeys)
     end
-})
+end)
 
-Tabs.Teleport:CreateButton({
-    Title = "Teleport to Player",
+TargetDrop:OnChanged(function()
+    selectedTarget = TargetDrop.Value
+end)
+
+TeleportSection:AddButton({
+    Title = "Teleport Now",
+    Description = "Teleport to selected target",
     Callback = function()
-        local targetName = PlayerDrop.Value
-        local p = Players:FindFirstChild(targetName)
-        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = p.Character.HumanoidRootPart.CFrame
-            Fluent:Notify({Title = "Teleport", Content = "Teleported to " .. targetName, Duration = 2})
+        if currentMode == "Player" then
+            local p = Players:FindFirstChild(selectedTarget)
+            if p and p.Character then LocalPlayer.Character.HumanoidRootPart.CFrame = p.Character.HumanoidRootPart.CFrame end
+        elseif currentMode == "Location" and LocationCoords[selectedTarget] then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(LocationCoords[selectedTarget])
         else
-            Fluent:Notify({Title = "Error", Content = "Player not found or invalid", Duration = 2})
+            Fluent:Notify({Title="Error", Content="Invalid Target", Duration=2})
         end
     end
 })
 
--- Section 2: Location Teleport
-Tabs.Teleport:CreateSection("Teleport to Location")
-
-local LocDrop = Tabs.Teleport:CreateDropdown("LocTarget", {
-    Title = "Select Location",
-    Values = LocationKeys,
-    Multi = false,
-    Default = 1,
-    Search = true -- Fitur Search Aktif
-})
-
-Tabs.Teleport:CreateButton({
-    Title = "Teleport to Location",
+TeleportSection:AddButton({
+    Title = "Refresh Players",
     Callback = function()
-        local locName = LocDrop.Value
-        if LocationCoords[locName] then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(LocationCoords[locName])
-            Fluent:Notify({Title = "Teleport", Content = "Arrived at " .. locName, Duration = 2})
+        if currentMode == "Player" then
+            local names = {}
+            for _, v in pairs(Players:GetPlayers()) do
+                if v ~= LocalPlayer then table.insert(names, v.Name) end
+            end
+            TargetDrop:SetValues(names)
+            Fluent:Notify({Title="Teleport", Content="List Refreshed", Duration=1})
         end
     end
 })
@@ -307,7 +378,6 @@ task.spawn(function()
             CastRod()
             task.wait(Config.FishDelay or 2.0)
             ReelIn()
-            -- No Catch Delay (Instant Recast)
         else
             task.wait(0.5)
         end
