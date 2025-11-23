@@ -1,11 +1,12 @@
--- Gamen X | Core Logic v1.9.0 (UI Rebuild)
--- Update: Safe UI Mode (Tanpa SaveManager sementara untuk cegah blank)
--- Update: Perbaikan Struktur Tab Fluent Renewed
+-- Gamen X | Core Logic v1.9.1 (UI Structure Fix)
+-- Update: Memperbaiki struktur AddTab dan AddSection
+-- Update: Menghapus SaveManager/InterfaceManager sementara (Raw UI Only)
+-- Update: Memastikan Tab terpilih secara otomatis
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.9.0...")
+print("[Gamen X] Initializing v1.9.1...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -14,7 +15,6 @@ end)
 
 if not success or type(Data) ~= "table" then
     Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
-    warn("[Gamen X] Failed to load variables. Using empty defaults.")
 end
 
 -- ====== SERVICES ======
@@ -33,10 +33,11 @@ if not successLib or not Fluent then
     return 
 end
 
+-- Membuat Window
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.9.0",
-    SubTitle = "UI Rebuild",
-    TabWidth = 160,
+    Title = "Gamen X | Core v1.9.1",
+    SubTitle = "UI Fix",
+    TabWidth = 120,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true,
     Theme = "Dark",
@@ -45,26 +46,19 @@ local Window = Fluent:CreateWindow({
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
--- Set Default Config Value jika nil
+-- Default Config (Safety)
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
 Config.FishDelay = 2.0
-Config.CatchDelay = 0.5
 Config.SellDelay = 10
-Config.WebhookFish = false
-Config.WebhookMinTier = 1
 
 local ShopData = Data.ShopData or {Rods={}, Baits={}}
 local LocationCoords = Data.LocationCoords or {}
-local FishTierMap = Data.FishTierMap or {}
-local TierColors = Data.TierColors or {}
-
-local SelectedRod, SelectedBait = nil, nil
-local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
+local SelectedRod = nil
 
 -- ====== NETWORK LOADER ======
 task.spawn(function()
@@ -75,12 +69,11 @@ task.spawn(function()
         local Index = Packages:WaitForChild("_Index", 5)
         if not Index then return end
         
-        local NetPackage = Index:FindFirstChild("sleitnick_net@0.2.0")
-        if not NetPackage then
-            for _, child in pairs(Index:GetChildren()) do
-                if child.Name:find("sleitnick_net") then NetPackage = child break end
-            end
+        local NetPackage = nil
+        for _, child in pairs(Index:GetChildren()) do
+            if child.Name:find("sleitnick_net") then NetPackage = child break end
         end
+        if not NetPackage then NetPackage = Index:FindFirstChild("sleitnick_net@0.2.0") end
         if not NetPackage then return end
 
         local NetFolder = NetPackage:WaitForChild("net", 5)
@@ -90,20 +83,11 @@ task.spawn(function()
         Events.charge = NetFolder:WaitForChild("RF/ChargeFishingRod", 2)
         Events.minigame = NetFolder:WaitForChild("RF/RequestFishingMinigameStarted", 2)
         Events.equip = NetFolder:WaitForChild("RE/EquipToolFromHotbar", 2)
-        Events.unequip = NetFolder:WaitForChild("RE/UnequipToolFromHotbar", 2)
         Events.sell = NetFolder:WaitForChild("RF/SellAllItems", 2)
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
-        Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         
-        Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
-        if Events.fishCaught then
-            Events.fishCaught.OnClientEvent:Connect(function(...) 
-                -- HandleFishCaught logika disini
-            end)
-        end
-
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "Game Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
     end)
 end)
 
@@ -124,72 +108,82 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- ====== TABS UI ======
+-- ====== TABS DEFINITION (STRUKTUR BARU) ======
+-- Kita buat Tabs satu per satu untuk memastikan tidak ada syntax error dalam table
+
 local Tabs = {
     Main = Window:AddTab({ Title = "Main", Icon = "home" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+    Settings = Window:AddTab({ Title = "Shop", Icon = "shopping-cart" }),
 }
 
--- === TAB: MAIN ===
-Tabs.Main:AddParagraph({
-    Title = "Gamen X",
-    Content = "Status: " .. (NetworkLoaded and "Connected" or "Connecting...")
-})
+-- === TAB: MAIN CONTENT ===
+-- Gunakan pcall di setiap elemen UI agar jika satu error, yang lain tetap muncul
 
-Tabs.Main:AddToggle("AutoFish", {
-    Title = "Auto Fish",
-    Description = "Spam Cast & Reel",
-    Default = false,
-    Callback = function(state) Config.AutoFish = state end
-})
+pcall(function()
+    Tabs.Main:AddParagraph({
+        Title = "Gamen X Status",
+        Content = "Script Active. Select features below."
+    })
+end)
 
-Tabs.Main:AddToggle("AutoEquip", {
-    Title = "Auto Equip",
-    Default = false,
-    Callback = function(state) Config.AutoEquip = state end
-})
+pcall(function()
+    Tabs.Main:AddToggle("AutoFish", {
+        Title = "Auto Fish",
+        Description = "Spam Cast & Reel (Barbar)",
+        Default = false,
+        Callback = function(state) Config.AutoFish = state end
+    })
+end)
 
-Tabs.Main:AddToggle("AutoSell", {
-    Title = "Auto Sell",
-    Default = false,
-    Callback = function(state) Config.AutoSell = state end
-})
+pcall(function()
+    Tabs.Main:AddToggle("AutoEquip", {
+        Title = "Auto Equip",
+        Default = false,
+        Callback = function(state) Config.AutoEquip = state end
+    })
+end)
 
-Tabs.Main:AddInput("FishDelay", {
-    Title = "Fish Delay (Bite)",
-    Default = tostring(Config.FishDelay),
-    Numeric = true,
-    Finished = true,
-    Callback = function(value) Config.FishDelay = tonumber(value) or 2.0 end
-})
+pcall(function()
+    Tabs.Main:AddToggle("AutoSell", {
+        Title = "Auto Sell",
+        Default = false,
+        Callback = function(state) Config.AutoSell = state end
+    })
+end)
 
-Tabs.Main:AddInput("SellDelay", {
-    Title = "Sell Delay",
-    Default = tostring(Config.SellDelay),
-    Numeric = true,
-    Finished = true,
-    Callback = function(value) Config.SellDelay = tonumber(value) or 10 end
-})
+pcall(function()
+    Tabs.Main:AddInput("FishDelay", {
+        Title = "Fish Delay (Bite Time)",
+        Default = "2.0",
+        Numeric = true,
+        Finished = true,
+        Callback = function(value) Config.FishDelay = tonumber(value) or 2.0 end
+    })
+end)
 
--- === TAB: SETTINGS (Merchant & Teleport Simplified) ===
+-- === TAB: SETTINGS / SHOP CONTENT ===
 local RodList = {}
 for k, _ in pairs(ShopData.Rods) do table.insert(RodList, k) end
-if #RodList == 0 then table.insert(RodList, "None") end
+if #RodList == 0 then table.insert(RodList, "No Data") end
 
-Tabs.Settings:AddDropdown("RodSelect", {
-    Title = "Select Rod to Buy",
-    Values = RodList,
-    Multi = false,
-    Default = nil,
-    Callback = function(v) SelectedRod = ShopData.Rods[v] end
-})
+pcall(function()
+    Tabs.Settings:AddDropdown("RodSelect", {
+        Title = "Select Rod",
+        Values = RodList,
+        Multi = false,
+        Default = nil,
+        Callback = function(v) SelectedRod = ShopData.Rods[v] end
+    })
+end)
 
-Tabs.Settings:AddButton({
-    Title = "Buy Selected Rod",
-    Callback = function() 
-        if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end 
-    end
-})
+pcall(function()
+    Tabs.Settings:AddButton({
+        Title = "Buy Rod",
+        Callback = function() 
+            if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end 
+        end
+    })
+end)
 
 -- ====== LOOPS ======
 task.spawn(function()
@@ -219,4 +213,7 @@ task.spawn(function()
     end 
 end)
 
-Window:SelectTab(1)
+-- Select Tab Terakhir (Delay sedikit agar UI render dulu)
+task.delay(1, function()
+    Window:SelectTab(1)
+end)
