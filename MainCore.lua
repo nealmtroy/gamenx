@@ -1,11 +1,12 @@
--- Gamen X | Core Logic v1.5.1 (Active Cursor Shake)
--- Update: Mengembalikan VirtualInputManager
--- Update: Auto Shake sekarang MENGGERAKKAN CURSOR ke tombol (Lebih Stabil)
+-- Gamen X | Core Logic v1.5.2 (Universal Input Fix)
+-- Update: Nambah Support kanggo 'mousemoveabs' (Executor Native)
+-- Update: Ndandani koordinat layar (GuiInset Fix) supaya ora meleset
+-- Update: Prioritas Klik (VIM -> VirtualUser -> InputService -> Activate)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.5.1...")
+print("[Gamen X] Initializing v1.5.2...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -26,19 +27,14 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local GuiService = game:GetService("GuiService") -- PENTING: Kanggo ngitung offset layar
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
--- Services Input (Load Dua-duanya untuk backup)
-local VirtualUser = nil
-local VirtualInputManager = nil
-
+-- Aktivasi VirtualUser (Yen support)
 pcall(function() 
-    VirtualUser = game:GetService("VirtualUser") 
     if VirtualUser then VirtualUser:CaptureController() end
-end)
-
-pcall(function()
-    VirtualInputManager = game:GetService("VirtualInputManager")
 end)
 
 -- ====== UI LIBRARY ======
@@ -52,8 +48,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.5.1",
-    SubTitle = "Active Cursor",
+    Title = "Gamen X | Core v1.5.2",
+    SubTitle = "Universal Input",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -61,7 +57,7 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "Active Cursor Shake Enabled.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Universal Shake Loaded.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
@@ -181,8 +177,8 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- UPDATED: ACTIVE CURSOR SHAKE
--- Fungsi ini akan memindahkan mouse ke tombol dan mengkliknya
+-- [[ UNIVERSAL SHAKE FUNCTION ]]
+-- Fungsi iki bakal nyoba kabeh cara supaya mouse gerak lan ngeklik
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
@@ -193,39 +189,45 @@ local function PerformAutoShake()
         local button = safezone and safezone:FindFirstChild("button")
         
         if button and button.Visible then
+            -- Hitung Posisi Tengah Tombol
             local pos = button.AbsolutePosition
             local size = button.AbsoluteSize
-            local centerX = pos.X + (size.X / 2)
-            local centerY = pos.Y + (size.Y / 2)
             
-            -- PRIORITAS 1: VirtualInputManager (Gerak + Klik) - Sangat Stabil
-            if VirtualInputManager then
+            -- Inset: Kanggo ngoreksi posisi mouse amarga ana TopBar Roblox (biasane 36px)
+            local inset = GuiService:GetGuiInset() 
+            
+            local centerX = pos.X + (size.X / 2)
+            local centerY = pos.Y + (size.Y / 2) + inset.Y -- Ditambah Inset supaya pas
+            
+            -- METODE 1: Executor Native (Paling Apik kanggo HP/Delta)
+            if mousemoveabs and mouse1click then
                 pcall(function()
-                    -- Gerakkan mouse ke tengah tombol
+                    mousemoveabs(centerX, centerY)
+                    mouse1click()
+                end)
+            
+            -- METODE 2: VirtualInputManager (PC Standard)
+            elseif VirtualInputManager then
+                pcall(function()
                     VirtualInputManager:SendMouseMoveEvent(centerX, centerY, game)
-                    
-                    -- Klik kiri
                     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
-                    task.wait(0.01)
+                    task.wait() -- Jeda sithik banget
                     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
                 end)
             
-            -- PRIORITAS 2: VirtualUser (Gerak + Klik) - Cadangan
+            -- METODE 3: VirtualUser (PC Legacy)
             elseif VirtualUser then
                 pcall(function()
-                    -- Gerakkan mouse
                     VirtualUser:MoveMouse(Vector2.new(centerX, centerY))
-                    
-                    -- Klik
                     VirtualUser:Button1Down(Vector2.new(centerX, centerY))
-                    task.wait(0.01)
+                    task.wait()
                     VirtualUser:Button1Up(Vector2.new(centerX, centerY))
                 end)
-                
-            -- PRIORITAS 3: Activate (Tanpa Gerak)
-            else
-                pcall(function() button:Activate() end)
             end
+            
+            -- METODE CADANGAN: Yen kursor gagal, paksa klik tombol
+            pcall(function() button:Activate() end)
+            pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
         end
     end
 end
@@ -240,7 +242,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.1\nUpdated: Active Cursor Shake."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.2\nUpdated: Universal Input Fix."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
