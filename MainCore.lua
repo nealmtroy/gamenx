@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v2.9.0 (Accordion UI & Webhook Beauty)
--- Update: Teleport Menu menggunakan sistem 'Manual Accordion' (Buka/Tutup)
--- Update: Webhook Notification dipercantik + Support Tag User ID
--- Update: Fix Syntax Button & Dropdown Search
+-- Gamen X | Core Logic v3.0.0 (Accordion UI Fix)
+-- Update: Teleport Menu menggunakan Accordion Manual (Klik Header untuk Buka/Tutup)
+-- Update: Perbaikan Syntax UI Strict (Toggle/Dropdown pakai ID, Button tidak)
+-- Update: Tidak menggunakan Section container untuk menghindari bug blank UI
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v2.9.0...")
+print("[Gamen X] Initializing v3.0.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -35,10 +35,11 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v2.9.0",
-    SubTitle = "Accordion Update",
+    Title = "Gamen X | Core v3.0.0",
+    SubTitle = "Accordion UI",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
+    Resize = true,
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
@@ -62,33 +63,12 @@ local FishTierMap = Data.FishTierMap or {}
 local TierColors = Data.TierColors or {}
 
 local SelectedRod, SelectedBait = nil, nil
+local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
 
--- ====== VISIBILITY HELPER (ACCORDION SYSTEM) ======
-local function ToggleVisible(element)
-    pcall(function()
-        if element and element.Frame then
-            element.Frame.Visible = not element.Frame.Visible
-        end
-    end)
-end
-
-local function SetVisible(element, state)
-    pcall(function()
-        if element and element.Frame then
-            element.Frame.Visible = state
-        end
-    end)
-end
-
 -- ====== HELPER FUNCTIONS ======
-local function GetTierName(tier)
-    local names = {[1]="Common",[2]="Uncommon",[3]="Rare",[4]="Epic",[5]="Legendary",[6]="Mythic",[7]="Secret"}
-    return names[tier] or "Unknown"
-end
-
 local function SendWebhook(url, payload)
     local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
     if req then 
@@ -96,7 +76,6 @@ local function SendWebhook(url, payload)
     end
 end
 
--- LOGIKA WEBHOOK DIPERCANTIK
 local function HandleFishCaught(fishName, fishData)
     if not Config.WebhookFish then return end
     local fishNameStr = tostring(fishName)
@@ -104,40 +83,38 @@ local function HandleFishCaught(fishName, fishData)
     if tier < Config.WebhookMinTier then return end
     
     local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "?"
-    local tierName = GetTierName(tier)
+    local tierName = "Tier " .. tostring(tier)
     local tierColor = TierColors[tier] or 16777215
     
-    -- DISCORD
     if Config.DiscordUrl and Config.DiscordUrl ~= "" then
-        local contentMsg = ""
-        if Config.DiscordID and Config.DiscordID ~= "" then
-            contentMsg = "Hey <@" .. Config.DiscordID .. ">, you caught something!"
-        end
-        
+        local contentMsg = Config.DiscordID ~= "" and "<@"..Config.DiscordID..">" or ""
         SendWebhook(Config.DiscordUrl, {
             ["content"] = contentMsg,
             ["embeds"] = {{
                 ["title"] = "🎣 Fish Caught!",
-                ["description"] = string.format("You caught a **%s**!\n\n⚖️ **Weight:** %s kg\n⭐ **Rarity:** %s", fishNameStr, weight, tierName),
+                ["description"] = string.format("**%s**\nWeight: **%s** kg\nRarity: **%s**", fishNameStr, weight, tierName),
                 ["color"] = tierColor,
-                ["footer"] = { ["text"] = "Gamen X • " .. os.date("%X") },
-                ["thumbnail"] = { ["url"] = "https://i.imgur.com/h5Xk5Fp.png" }
+                ["footer"] = { ["text"] = "Gamen X | " .. os.date("%X") }
             }}
         })
     end
     
-    -- TELEGRAM
     if Config.TelegramToken and Config.TelegramToken ~= "" then
-        local tagMsg = ""
-        if Config.TelegramUserID and Config.TelegramUserID ~= "" then
-            tagMsg = "["..Config.TelegramUserID.."](tg://user?id="..Config.TelegramUserID..") "
-        end
-        
+        local tagMsg = Config.TelegramUserID ~= "" and "["..Config.TelegramUserID.."](tg://user?id="..Config.TelegramUserID..") " or ""
         SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
             ["chat_id"] = Config.TelegramChatID,
-            ["text"] = string.format("🎣 *Gamen X Notification*\n\n%sHello!\nYou just caught a *%s*!\n\n⚖️ Weight: `%s kg`\n⭐ Rarity: *%s*", tagMsg, fishNameStr, weight, tierName),
+            ["text"] = string.format("🎣 *Gamen X Notification*\n%s\nYou caught: *%s*\nRarity: *%s*\nWeight: `%s kg`", tagMsg, fishNameStr, tierName, weight),
             ["parse_mode"] = "Markdown"
         })
+    end
+end
+
+-- Helper untuk Accordion (Hide/Show Elements)
+local function ToggleGroup(group, state)
+    for _, element in pairs(group) do
+        if element and element.Instance then
+            element.Instance.Visible = state
+        end
     end
 end
 
@@ -176,7 +153,7 @@ task.spawn(function()
         end
 
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "System Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
     end)
 end)
 
@@ -207,176 +184,140 @@ local Tabs = {
 }
 
 -- === TAB: MAIN ===
-local MainSection = Tabs.Main:Section("Automation Features")
+Tabs.Main:Paragraph("StatusPara", {Title = "Status", Content = "Script Active."})
 
-MainSection:Toggle("AutoFish", {
-    Title = "Enable Auto Fish",
-    Description = "Spam Cast & Reel (Barbar Mode)",
-    Default = false,
-    Callback = function(state) Config.AutoFish = state end
-})
+Tabs.Main:Toggle("AutoFish", {Title = "Enable Auto Fish", Description = "Spam Cast & Reel (Barbar)", Default = false, Callback = function(v) Config.AutoFish=v end})
+Tabs.Main:Toggle("AutoEquip", {Title = "Auto Equip Rod", Default = false, Callback = function(v) Config.AutoEquip=v end})
+Tabs.Main:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback = function(v) Config.AutoSell=v end})
 
-MainSection:Toggle("AutoEquip", {Title = "Auto Equip Rod", Default = false, Callback = function(state) Config.AutoEquip = state end})
-MainSection:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback = function(state) Config.AutoSell = state end})
+Tabs.Main:Input("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(v) Config.FishDelay=tonumber(v) or 2.0 end})
+Tabs.Main:Input("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(v) Config.SellDelay=tonumber(v) or 10 end})
 
-local TimingSection = Tabs.Main:Section("Delays")
-TimingSection:Input("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(val) Config.FishDelay = tonumber(val) or 2.0 end})
-TimingSection:Input("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(val) Config.SellDelay = tonumber(val) or 10 end})
-
--- === TAB: TELEPORT (ACCORDION STYLE) ===
+-- === TAB: TELEPORT (ACCORDION) ===
+-- Data
 local function GetPlayerNames()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
-    if #l == 0 then table.insert(l, "No Players") end
+    if #l==0 then table.insert(l, "No Players") end
     return l
 end
-
 local LocationKeys = {}
 if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
 table.sort(LocationKeys)
 
-local TeleSection = Tabs.Teleport:Section("Teleport Manager")
+-- Group Storage
+local PlayerUI = {}
+local LocationUI = {}
+local IsPlayerOpen = false
+local IsLocationOpen = false
 
--- [[ 1. PLAYER ACCORDION ]]
-TeleSection:Button({
+-- 1. PLAYER TELEPORT (Header)
+Tabs.Teleport:Button({
     Title = "📂 Player Teleport",
-    Description = "Click to Expand/Collapse",
+    Description = "Click to Open/Close Player Menu",
     Callback = function()
-        ToggleVisible(Options.PlayerTarget)
-        ToggleVisible(Options.RefreshPlayers)
-        ToggleVisible(Options.TeleportPlayerBtn)
+        IsPlayerOpen = not IsPlayerOpen
+        ToggleGroup(PlayerUI, IsPlayerOpen)
+        
+        -- Tutup menu sebelah biar rapi
+        if IsPlayerOpen then 
+            IsLocationOpen = false 
+            ToggleGroup(LocationUI, false) 
+        end
     end
 })
 
-local PlayerDrop = TeleSection:Dropdown("PlayerTarget", {
-    Title = "Select Player",
-    Values = GetPlayerNames(),
-    Multi = false,
-    Default = 1,
-    Searchable = true
-})
+-- Player Content (Disimpan di PlayerUI)
+local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title = "Select Player", Values = GetPlayerNames(), Multi = false, Default = 1, Searchable = true})
+table.insert(PlayerUI, PD)
 
-local RefreshBtn = TeleSection:Button({
-    Title = "Refresh Players",
-    Callback = function() PlayerDrop:SetValues(GetPlayerNames()) end
-})
+local RB = Tabs.Teleport:Button({Title = "Refresh Players", Callback = function() PD:SetValues(GetPlayerNames()); PD:SetValue(nil) end})
+table.insert(PlayerUI, RB)
 
-local TelePlayerBtn = TeleSection:Button({
+local TPB = Tabs.Teleport:Button({
     Title = "Teleport to Player",
     Callback = function()
-        local target = Players:FindFirstChild(PlayerDrop.Value)
-        if target and target.Character then 
-            LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame 
-            Fluent:Notify({Title="Success", Content="Teleported!", Duration=2})
-        else
-            Fluent:Notify({Title="Error", Content="Player not found", Duration=2})
+        local target = Players:FindFirstChild(PD.Value)
+        if target and target.Character then LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame end
+    end
+})
+table.insert(PlayerUI, TPB)
+
+-- Sembunyikan Player Content di awal
+ToggleGroup(PlayerUI, false)
+
+
+-- 2. LOCATION TELEPORT (Header)
+Tabs.Teleport:Button({
+    Title = "📂 Location Teleport",
+    Description = "Click to Open/Close Location Menu",
+    Callback = function()
+        IsLocationOpen = not IsLocationOpen
+        ToggleGroup(LocationUI, IsLocationOpen)
+        
+        if IsLocationOpen then 
+            IsPlayerOpen = false
+            ToggleGroup(PlayerUI, false) 
         end
     end
 })
 
--- Hide Player Elements by Default
-SetVisible(PlayerDrop, false)
-SetVisible(RefreshBtn, false)
-SetVisible(TelePlayerBtn, false)
+-- Location Content (Disimpan di LocationUI)
+local LD = Tabs.Teleport:Dropdown("LocTarget", {Title = "Select Location", Values = LocationKeys, Multi = false, Default = 1, Searchable = true})
+table.insert(LocationUI, LD)
 
--- [[ 2. LOCATION ACCORDION ]]
-TeleSection:Button({
-    Title = "📂 Location Teleport",
-    Description = "Click to Expand/Collapse",
-    Callback = function()
-        ToggleVisible(Options.LocTarget)
-        ToggleVisible(Options.TeleportLocBtn)
-    end
-})
-
-local LocDrop = TeleSection:Dropdown("LocTarget", {
-    Title = "Select Location",
-    Values = LocationKeys,
-    Multi = false,
-    Default = 1,
-    Searchable = true
-})
-
-local TeleLocBtn = TeleSection:Button({
+local TLB = Tabs.Teleport:Button({
     Title = "Teleport to Location",
     Callback = function()
-        local target = LocationCoords[LocDrop.Value]
-        if target then 
-            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target) 
-            Fluent:Notify({Title="Success", Content="Arrived!", Duration=2})
-        end
+        local target = LocationCoords[LD.Value]
+        if target then LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target) end
     end
 })
+table.insert(LocationUI, TLB)
 
--- Hide Location Elements by Default
-SetVisible(LocDrop, false)
-SetVisible(TeleLocBtn, false)
+-- Sembunyikan Location Content di awal
+ToggleGroup(LocationUI, false)
 
 
 -- === TAB: MERCHANT ===
-local ShopSection = Tabs.Merchant:Section("Item Shop")
 local RodList = {}
 if ShopData.Rods then for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end end
 table.sort(RodList)
 
-ShopSection:Dropdown("RodSelect", {
-    Title = "Select Rod",
-    Values = RodList,
-    Multi = false,
-    Default = 1,
-    Searchable = true,
+Tabs.Merchant:Dropdown("RodSelect", {
+    Title = "Select Rod", Values = RodList, Multi = false, Default = 1, Searchable = true,
     Callback = function(v) if ShopData.Rods then SelectedRod = ShopData.Rods[v] end end
 })
-
-ShopSection:Button({
-    Title = "Buy Rod",
-    Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end
-})
+Tabs.Merchant:Button({Title = "Buy Rod", Callback = function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
 
 local BaitList = {}
 if ShopData.Baits then for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end end
 table.sort(BaitList)
 
-ShopSection:Dropdown("BaitSelect", {
-    Title = "Select Bait",
-    Values = BaitList,
-    Multi = false,
-    Default = 1,
-    Searchable = true,
+Tabs.Merchant:Dropdown("BaitSelect", {
+    Title = "Select Bait", Values = BaitList, Multi = false, Default = 1, Searchable = true,
     Callback = function(v) if ShopData.Baits then SelectedBait = ShopData.Baits[v] end end
 })
+Tabs.Merchant:Button({Title = "Buy Bait", Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
 
-ShopSection:Button({
-    Title = "Buy Bait",
-    Callback = function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end
-})
+-- === TAB: WEBHOOK ===
+Tabs.Webhook:Paragraph("DiscHeader", {Title="Discord Settings"})
+Tabs.Webhook:Toggle("WebhookDiscord", {Title="Enable Discord", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
+Tabs.Webhook:Input("DiscordUrl", {Title="Webhook URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
+Tabs.Webhook:Input("DiscordID", {Title="Tag User ID", Default="", Callback=function(v) Config.DiscordID=v end})
 
--- === TAB: WEBHOOK (SEPARATED & TAG USER) ===
-local DiscSection = Tabs.Webhook:Section("Discord Settings")
-DiscSection:Toggle("WebhookDiscord", {Title="Enable Discord", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
-DiscSection:Input("DiscordUrl", {Title="Webhook URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
-DiscSection:Input("DiscordID", {Title="Tag User ID", Description="Example: 123456789", Default="", Callback=function(v) Config.DiscordID=v end})
+Tabs.Webhook:Paragraph("TeleHeader", {Title="Telegram Settings"})
+Tabs.Webhook:Toggle("WebhookTelegram", {Title="Enable Telegram", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
+Tabs.Webhook:Input("TeleToken", {Title="Bot Token", Default="", Callback=function(v) Config.TelegramToken=v end})
+Tabs.Webhook:Input("TeleChatID", {Title="Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
+Tabs.Webhook:Input("TeleUserID", {Title="Tag User ID", Default="", Callback=function(v) Config.TelegramUserID=v end})
 
-local TeleSection = Tabs.Webhook:Section("Telegram Settings")
-TeleSection:Toggle("WebhookTelegram", {Title="Enable Telegram", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
-TeleSection:Input("TeleToken", {Title="Bot Token", Default="", Callback=function(v) Config.TelegramToken=v end})
-TeleSection:Input("TeleChatID", {Title="Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
-TeleSection:Input("TeleUserID", {Title="Tag User ID", Description="Optional", Default="", Callback=function(v) Config.TelegramUserID=v end})
-
-local GenSection = Tabs.Webhook:Section("General Settings")
+Tabs.Webhook:Paragraph("GenHeader", {Title="General"})
 local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
-GenSection:Dropdown("MinTier", {
-    Title="Min Rarity", 
-    Values=TierList, 
-    Multi=false, 
-    Default=1, 
-    Searchable = true,
-    Callback=function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end
-})
+Tabs.Webhook:Dropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end})
 
-GenSection:Button({
+Tabs.Webhook:Button({
     Title="Test Webhook",
-    Description="Send test notification",
     Callback=function() 
         if Config.WebhookDiscord and Config.DiscordUrl~="" then 
             local content = Config.DiscordID~="" and "<@"..Config.DiscordID..">" or ""
