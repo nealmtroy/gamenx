@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v3.3.0 (Accordion Final Fix)
--- Update: Fungsi 'SetItemVisible' diperbaiki untuk Fluent Renewed
--- Update: Menu Teleport DIJAMIN tertutup saat awal jalan
--- Update: Logika Buka-Tutup lebih responsif
+-- Gamen X | Core Logic v3.5.0 (Animated UI)
+-- Update: Menambahkan Animasi Garis (Line) saat Accordion dibuka
+-- Update: Warna Ungu untuk Player, Hijau untuk Location
+-- Update: Transisi UI lebih halus
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v3.3.0...")
+print("[Gamen X] Initializing v3.5.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -22,6 +22,7 @@ end
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService") -- Service Animasi
 local LocalPlayer = Players.LocalPlayer
 
 -- ====== UI LIBRARY ======
@@ -35,8 +36,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v3.3.0",
-    SubTitle = "Accordion Final",
+    Title = "Gamen X | Core v3.5.0",
+    SubTitle = "Animated UI",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -67,6 +68,37 @@ local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
+
+-- ====== ANIMATION HELPERS ======
+-- Fungsi untuk menambahkan garis di bawah tombol
+local function AddActiveLine(element, color)
+    local frame = nil
+    if element.Frame then frame = element.Frame 
+    elseif element.Instance and element.Instance.Frame then frame = element.Instance.Frame end
+    
+    if not frame then return nil end
+
+    local line = Instance.new("Frame")
+    line.Name = "ActiveIndicator"
+    line.BackgroundColor3 = color
+    line.BorderSizePixel = 0
+    line.Position = UDim2.new(0.5, 0, 1, -2) -- Mulai dari tengah bawah
+    line.AnchorPoint = Vector2.new(0.5, 0)
+    line.Size = UDim2.new(0, 0, 0, 2) -- Lebar awal 0 (hilang)
+    line.Parent = frame
+    
+    return line
+end
+
+-- Fungsi untuk menjalankan animasi garis
+local function AnimateLine(line, isActive)
+    if not line then return end
+    
+    local targetSize = isActive and UDim2.new(1, 0, 0, 2) or UDim2.new(0, 0, 0, 2)
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    
+    TweenService:Create(line, tweenInfo, {Size = targetSize}):Play()
+end
 
 -- ====== HELPER FUNCTIONS ======
 local function SendWebhook(url, payload)
@@ -109,27 +141,19 @@ local function HandleFishCaught(fishName, fishData)
     end
 end
 
--- [[ VISIBILITY HELPER v2 ]]
--- Fungsi ini lebih teliti mencari 'Frame' untuk disembunyikan
 local function SetItemVisible(item, state)
     pcall(function()
         if item then
-            -- Cek struktur Fluent Renewed yang mungkin
-            if item.Frame then
-                item.Frame.Visible = state
-            elseif item.Instance and item.Instance.Frame then
-                item.Instance.Frame.Visible = state
-            elseif item.Instance and item.Instance:IsA("GuiObject") then
-                item.Instance.Visible = state
+            if item.Frame then item.Frame.Visible = state
+            elseif item.Instance and item.Instance.Frame then item.Instance.Frame.Visible = state
+            elseif item.Instance and item.Instance:IsA("GuiObject") then item.Instance.Visible = state
             end
         end
     end)
 end
 
 local function ToggleGroup(group, state)
-    for _, item in pairs(group) do
-        SetItemVisible(item, state)
-    end
+    for _, item in pairs(group) do SetItemVisible(item, state) end
 end
 
 -- ====== NETWORK LOADER ======
@@ -207,7 +231,7 @@ Tabs.Main:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback
 Tabs.Main:Input("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(v) Config.FishDelay=tonumber(v) or 2.0 end})
 Tabs.Main:Input("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(v) Config.SellDelay=tonumber(v) or 10 end})
 
--- === TAB: TELEPORT (ACCORDION) ===
+-- === TAB: TELEPORT (ANIMATED ACCORDION) ===
 local function GetPlayerNames()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
@@ -218,31 +242,35 @@ local LocationKeys = {}
 if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
 table.sort(LocationKeys)
 
--- Group Storage
-local PlayerGroup = {}
-local LocationGroup = {}
-local PlayerOpen = false
-local LocationOpen = false
+-- Variables untuk state & objek baris animasi
+local PlayerGroup, LocationGroup = {}, {}
+local PlayerOpen, LocationOpen = false, false
+local PlayerLine, LocationLine = nil, nil -- Placeholder untuk Objek Garis
 
 -- 1. PLAYER ACCORDION
-Tabs.Teleport:Button({
+local PlayerHeader = Tabs.Teleport:Button({
     Title = "Player Teleport",
-    Description = "Click to Show/Hide Menu",
+    Description = "Click to expand",
     Callback = function()
         PlayerOpen = not PlayerOpen
         ToggleGroup(PlayerGroup, PlayerOpen)
+        AnimateLine(PlayerLine, PlayerOpen) -- Animasi Garis
         
-        -- Auto Close other menu
+        -- Auto Close others
         if PlayerOpen then 
             LocationOpen = false
             ToggleGroup(LocationGroup, false)
+            AnimateLine(LocationLine, false)
         end
     end
 })
+-- Tambahkan garis Ungu ke tombol
+PlayerLine = AddActiveLine(PlayerHeader, Color3.fromRGB(170, 85, 255)) 
 
--- Item-item Player (Dimasukkan ke tabel)
 local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title = "Select Player", Values = GetPlayerNames(), Multi = false, Default = 1, Searchable = true})
+table.insert(PlayerGroup, PD)
 local RB = Tabs.Teleport:Button({Title = "Refresh Players", Callback = function() PD:SetValues(GetPlayerNames()); PD:SetValue(nil) end})
+table.insert(PlayerGroup, RB)
 local TPB = Tabs.Teleport:Button({
     Title = "Teleport to Player",
     Callback = function()
@@ -250,29 +278,30 @@ local TPB = Tabs.Teleport:Button({
         if target and target.Character then LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame end
     end
 })
-
-table.insert(PlayerGroup, PD)
-table.insert(PlayerGroup, RB)
 table.insert(PlayerGroup, TPB)
 
 
 -- 2. LOCATION ACCORDION
-Tabs.Teleport:Button({
+local LocationHeader = Tabs.Teleport:Button({
     Title = "Location Teleport",
-    Description = "Click to Show/Hide Menu",
+    Description = "Click to expand",
     Callback = function()
         LocationOpen = not LocationOpen
         ToggleGroup(LocationGroup, LocationOpen)
+        AnimateLine(LocationLine, LocationOpen) -- Animasi Garis
         
         if LocationOpen then 
             PlayerOpen = false
             ToggleGroup(PlayerGroup, false)
+            AnimateLine(PlayerLine, false)
         end
     end
 })
+-- Tambahkan garis Hijau ke tombol
+LocationLine = AddActiveLine(LocationHeader, Color3.fromRGB(85, 255, 127)) 
 
--- Item-item Location (Dimasukkan ke tabel)
 local LD = Tabs.Teleport:Dropdown("LocTarget", {Title = "Select Location", Values = LocationKeys, Multi = false, Default = 1, Searchable = true})
+table.insert(LocationGroup, LD)
 local TLB = Tabs.Teleport:Button({
     Title = "Teleport to Location",
     Callback = function()
@@ -280,14 +309,11 @@ local TLB = Tabs.Teleport:Button({
         if target then LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target) end
     end
 })
-
-table.insert(LocationGroup, LD)
 table.insert(LocationGroup, TLB)
 
 -- [[ AUTO HIDE INIT ]]
--- Sembunyikan semua submenu saat script jalan
 task.spawn(function()
-    task.wait(0.5) -- Beri waktu render
+    task.wait(0.5) 
     ToggleGroup(PlayerGroup, false)
     ToggleGroup(LocationGroup, false)
 end)
