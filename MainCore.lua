@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v3.1.0 (Accordion Fix)
--- Update: Memastikan Menu Teleport TERTUTUP saat script dijalankan
--- Update: Menambahkan indikator panah (> / v) pada tombol Accordion
--- Update: Perbaikan logika Toggle Visibility agar tidak gagal
+-- Gamen X | Core Logic v3.2.0 (Hidden Accordion Fix)
+-- Update: Memperbaiki logika hide/show agar Dropdown benar-benar tersembunyi
+-- Update: Menu Teleport sekarang RAPIH (Hanya Header yang muncul di awal)
+-- Update: Kompatibilitas visibilitas untuk semua elemen UI
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v3.1.0...")
+print("[Gamen X] Initializing v3.2.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -35,7 +35,7 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v3.1.0",
+    Title = "Gamen X | Core v3.2.0",
     SubTitle = "Accordion Fix",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
@@ -109,12 +109,16 @@ local function HandleFishCaught(fishName, fishData)
     end
 end
 
--- [[ ACCORDION HELPER ]]
--- Fungsi untuk menyembunyikan/menampilkan grup elemen UI
+-- [[ VISIBILITY HELPER FIXED ]]
+-- Fungsi ini sekarang mengecek 'Instance' yang merupakan properti benar untuk Toggle Visible
 local function SetGroupVisibility(group, visible)
     for _, element in ipairs(group) do
         pcall(function()
-            if element.Frame then element.Frame.Visible = visible end
+            if element.Instance then 
+                element.Instance.Visible = visible 
+            elseif element.Frame then
+                element.Frame.Visible = visible
+            end
         end)
     end
 end
@@ -194,8 +198,7 @@ Tabs.Main:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback
 Tabs.Main:Input("FishDelay", {Title = "Fish Delay (Bite Time)", Default = "2.0", Numeric = true, Finished = true, Callback = function(v) Config.FishDelay=tonumber(v) or 2.0 end})
 Tabs.Main:Input("SellDelay", {Title = "Sell Delay", Default = "10", Numeric = true, Finished = true, Callback = function(v) Config.SellDelay=tonumber(v) or 10 end})
 
--- === TAB: TELEPORT (ACCORDION) ===
--- Data
+-- === TAB: TELEPORT (ACCORDION FIXED) ===
 local function GetPlayerNames()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
@@ -206,29 +209,28 @@ local LocationKeys = {}
 if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
 table.sort(LocationKeys)
 
--- Group Storage (Menyimpan elemen untuk di-hide/show)
+-- Group Storage
 local PlayerGroup = {}
 local LocationGroup = {}
 local PlayerOpen = false
 local LocationOpen = false
 
--- [[ 1. PLAYER ACCORDION ]]
+-- 1. PLAYER ACCORDION
 local PlayerHeader = Tabs.Teleport:Button({
-    Title = "> Player Teleport",
-    Description = "Click to Expand",
+    Title = "Player Teleport >",
+    Description = "Click to expand",
     Callback = function()
         PlayerOpen = not PlayerOpen
         SetGroupVisibility(PlayerGroup, PlayerOpen)
         
-        -- Update Judul Tombol (Arrow)
-        -- Catatan: Fluent mungkin tidak support SetTitle dinamis di semua versi, tapi logic visibility jalan.
-        if PlayerOpen then
-             Fluent:Notify({Title="Player Menu", Content="Expanded", Duration=1})
+        -- Auto Close other menu
+        if PlayerOpen then 
+            LocationOpen = false
+            SetGroupVisibility(LocationGroup, false)
         end
     end
 })
 
--- Elemen Player (Akan disembunyikan di awal)
 local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title = "Select Player", Values = GetPlayerNames(), Multi = false, Default = 1, Searchable = true})
 table.insert(PlayerGroup, PD)
 
@@ -245,21 +247,21 @@ local TPB = Tabs.Teleport:Button({
 table.insert(PlayerGroup, TPB)
 
 
--- [[ 2. LOCATION ACCORDION ]]
+-- 2. LOCATION ACCORDION
 local LocationHeader = Tabs.Teleport:Button({
-    Title = "> Location Teleport",
-    Description = "Click to Expand",
+    Title = "Location Teleport >",
+    Description = "Click to expand",
     Callback = function()
         LocationOpen = not LocationOpen
         SetGroupVisibility(LocationGroup, LocationOpen)
         
-        if LocationOpen then
-             Fluent:Notify({Title="Location Menu", Content="Expanded", Duration=1})
+        if LocationOpen then 
+            PlayerOpen = false
+            SetGroupVisibility(PlayerGroup, false)
         end
     end
 })
 
--- Elemen Location (Akan disembunyikan di awal)
 local LD = Tabs.Teleport:Dropdown("LocTarget", {Title = "Select Location", Values = LocationKeys, Multi = false, Default = 1, Searchable = true})
 table.insert(LocationGroup, LD)
 
@@ -272,10 +274,9 @@ local TLB = Tabs.Teleport:Button({
 })
 table.insert(LocationGroup, TLB)
 
--- [[ AUTO HIDE INIT ]]
--- Kita jalankan delay sedikit untuk memastikan UI sudah dirender, lalu kita sembunyikan
+-- HIDE ALL ON INIT
 task.spawn(function()
-    task.wait(0.5) -- Tunggu UI jadi
+    task.wait(0.2) -- Beri waktu sedikit agar UI dibuat
     SetGroupVisibility(PlayerGroup, false)
     SetGroupVisibility(LocationGroup, false)
 end)
