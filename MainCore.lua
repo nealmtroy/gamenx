@@ -1,15 +1,13 @@
--- Gamen X | Core Logic v1.4.9 (JSON Support Ready)
--- Inti Logika Script
--- Script ini otomatis membaca konfigurasi & data JSON dari Variables
+-- Gamen X | Core Logic v1.5.0 (Precision Shake Update)
+-- Update: Auto Shake sekarang menargetkan tombol secara presisi (AbsolutePosition)
+-- Fix: Mencegah klik meleset jika resolusi layar berubah
 
 -- [[ KONFIGURASI DEPENDENCY ]]
--- Ganti link ini dengan link RAW GamenX_Variables.lua di GitHub kamu
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v1.4.9...")
+print("[Gamen X] Initializing v1.5.0...")
 
--- 1. LOAD VARIABLES (Wajib)
--- Ini akan mendownload Variables.lua dan menjalankan parsing JSON otomatis
+-- 1. LOAD VARIABLES
 local success, Data = pcall(function()
     return loadstring(game:HttpGet(Variables_URL))()
 end)
@@ -20,11 +18,8 @@ if not success or type(Data) ~= "table" then
         Text = "Gagal memuat Variables! Script dihentikan.",
         Duration = 10
     })
-    error("❌ [Gamen X] Critical: Failed to load Variables.")
     return
 end
-
-print("[Gamen X] Variables Loaded & JSON Parsed Successfully.")
 
 -- ====== SERVICES ======
 local Players = game:GetService("Players")
@@ -49,8 +44,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/d
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.4.9",
-    SubTitle = "Rarity Filter",
+    Title = "Gamen X | Core v1.5.0",
+    SubTitle = "Precision Shake",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
@@ -58,13 +53,13 @@ local Window = Fluent:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightControl
 })
 
-Fluent:Notify({Title = "Gamen X", Content = "System Ready.", Duration = 3})
+Fluent:Notify({Title = "Gamen X", Content = "Precision Shake Active.", Duration = 3})
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config
 local ShopData = Data.ShopData
 local LocationCoords = Data.LocationCoords
-local FishTierMap = Data.FishTierMap or {} -- Ini sudah berisi data dari JSON kamu
+local FishTierMap = Data.FishTierMap or {}
 local TierColors = Data.TierColors or {}
 
 local SelectedRod, SelectedBait = nil, nil
@@ -73,16 +68,12 @@ local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
 
--- ====== HELPER: Get Tier Name ======
+-- ====== HELPER ======
 local function GetTierName(tier)
-    local names = {
-        [1] = "Common", [2] = "Uncommon", [3] = "Rare",
-        [4] = "Epic", [5] = "Legendary", [6] = "Mythic", [7] = "Secret"
-    }
+    local names = {[1]="Common",[2]="Uncommon",[3]="Rare",[4]="Epic",[5]="Legendary",[6]="Mythic",[7]="Secret"}
     return names[tier] or "Unknown"
 end
 
--- ====== WEBHOOK SENDER ======
 local function SendWebhook(url, payload)
     local req = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
     if req then 
@@ -97,24 +88,16 @@ end
 
 local function HandleFishCaught(fishName, fishData)
     if not Config.WebhookFish then return end
-    
-    -- 1. Cek Tier Ikan dari Database JSON yang sudah diparsing
     local fishNameStr = tostring(fishName)
-    local tier = FishTierMap[fishNameStr] or 1 -- Default Tier 1 jika nama ikan baru/tidak ada di JSON
-    
-    -- 2. Filter Rarity (Jika Tier ikan < Pilihan Player, batalkan)
-    if tier < Config.WebhookMinTier then 
-        -- print("[Gamen X] Filtered: " .. fishNameStr .. " (Tier " .. tier .. ")")
-        return 
-    end
+    local tier = FishTierMap[fishNameStr] or 1
+    if tier < Config.WebhookMinTier then return end
     
     local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "?"
     local tierName = GetTierName(tier)
-    local tierColor = TierColors[tier] or 16777215 -- Default Putih
+    local tierColor = TierColors[tier] or 16777215
     
-    -- Discord Payload
     if Config.DiscordUrl ~= "" then
-        local payload = {
+        SendWebhook(Config.DiscordUrl, {
             ["content"] = "",
             ["embeds"] = {{
                 ["title"] = "🎣 Fish Caught!",
@@ -122,20 +105,15 @@ local function HandleFishCaught(fishName, fishData)
                 ["color"] = tierColor,
                 ["footer"] = { ["text"] = "Gamen X | " .. os.date("%X") }
             }}
-        }
-        SendWebhook(Config.DiscordUrl, payload)
+        })
     end
     
-    -- Telegram Payload
     if Config.TelegramToken ~= "" and Config.TelegramChatID ~= "" then
-        local text = string.format("🎣 *Gamen X Notification*\n\nFish: *%s*\nRarity: *%s*\nWeight: `%s kg`", fishNameStr, tierName, weight)
-        local url = "https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage"
-        local payload = {
+        SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
             ["chat_id"] = Config.TelegramChatID,
-            ["text"] = text,
+            ["text"] = string.format("🎣 *Gamen X Notification*\n\nFish: *%s*\nRarity: *%s*\nWeight: `%s kg`", fishNameStr, tierName, weight),
             ["parse_mode"] = "Markdown"
-        }
-        SendWebhook(url, payload)
+        })
     end
 end
 
@@ -168,7 +146,6 @@ task.spawn(function()
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         Events.updateState = NetFolder:WaitForChild("RF/UpdateAutoFishingState", 2)
         
-        -- EVENT LISTENER
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
         if Events.fishCaught then
             Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
@@ -179,7 +156,7 @@ task.spawn(function()
     end)
 end)
 
--- ====== FUNCTIONS ======
+-- ====== LOGIC ======
 local function CastRod()
     if not NetworkLoaded or not Events.equip then return end
     pcall(function()
@@ -196,21 +173,31 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
+-- UPDATED: SHAKE PRESISI
 local function PerformAutoShake()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not PlayerGui then return end
     local shakeUI = PlayerGui:FindFirstChild("shakeui")
     if shakeUI and shakeUI.Enabled then
-        local button = shakeUI:FindFirstChild("safezone") and shakeUI.safezone:FindFirstChild("button")
+        local safezone = shakeUI:FindFirstChild("safezone")
+        local button = safezone and safezone:FindFirstChild("button")
+        
         if button and button.Visible then
             pcall(function() button:Activate() end)
             pcall(function() if firesignal then firesignal(button.MouseButton1Click) end end)
+            
             if VirtualUser then
                 pcall(function()
-                    local viewport = workspace.CurrentCamera.ViewportSize
-                    VirtualUser:Button1Down(Vector2.new(viewport.X/2, viewport.Y/2))
+                    -- MENGHITUNG TENGAH TOMBOL SECARA AKURAT
+                    -- Bukan tengah layar, tapi tengah tombolnya sendiri
+                    local pos = button.AbsolutePosition
+                    local size = button.AbsoluteSize
+                    local centerX = pos.X + (size.X / 2)
+                    local centerY = pos.Y + (size.Y / 2)
+                    
+                    VirtualUser:Button1Down(Vector2.new(centerX, centerY))
                     task.wait(0.01)
-                    VirtualUser:Button1Up(Vector2.new(viewport.X/2, viewport.Y/2))
+                    VirtualUser:Button1Up(Vector2.new(centerX, centerY))
                 end)
             end
         end
@@ -227,12 +214,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.4.9\nFeature: Rarity Filter & JSON Parsing."})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.5.0\nUpdated Shake Logic."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
 Tabs.Fishing:AddToggle("LegitMode", {Title="Legit Mode", Default=Config.LegitMode, Callback=function(v) Config.LegitMode=v; if NetworkLoaded and Events.updateState then Events.updateState:InvokeServer(v) end end})
-Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake (Center)", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
+Tabs.Fishing:AddToggle("AutoShake", {Title="Auto Shake", Default=Config.AutoShake, Callback=function(v) Config.AutoShake=v end})
 Tabs.Fishing:AddToggle("AutoFish", {Title="Script Auto Fish", Default=Config.AutoFish, Callback=function(v) Config.AutoFish=v end})
 Tabs.Fishing:AddToggle("AutoEquip", {Title="Auto Equip", Default=Config.AutoEquip, Callback=function(v) Config.AutoEquip=v end})
 Tabs.Fishing:AddToggle("AutoSell", {Title="Auto Sell", Default=Config.AutoSell, Callback=function(v) Config.AutoSell=v end})
@@ -259,42 +246,17 @@ Tabs.Webhook:AddInput("TeleToken", {Title="Tele Token", Default=Config.TelegramT
 Tabs.Webhook:AddInput("TeleID", {Title="Tele Chat ID", Default=Config.TelegramChatID, Callback=function(v) Config.TelegramChatID=v end})
 
 Tabs.Webhook:AddSection("Notification Settings")
-Tabs.Webhook:AddToggle("WebhookFish", {
-    Title = "Notify Fish Caught", 
-    Description = "Send webhook when you catch a fish",
-    Default = Config.WebhookFish, 
-    Callback = function(v) Config.WebhookFish = v end
-})
-
--- Rarity Filter UI
+Tabs.Webhook:AddToggle("WebhookFish", {Title="Notify Fish Caught", Default=Config.WebhookFish, Callback=function(v) Config.WebhookFish=v end})
 Tabs.Webhook:AddDropdown("MinTierSelect", {
     Title = "Minimum Rarity to Notify",
-    Description = "Only send notification if fish rarity is above or equal to this.",
-    Values = {
-        "1 - Common", 
-        "2 - Uncommon", 
-        "3 - Rare", 
-        "4 - Epic", 
-        "5 - Legendary", 
-        "6 - Mythic", 
-        "7 - Secret"
-    },
+    Values = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"},
     Default = Config.WebhookMinTier .. " - " .. GetTierName(Config.WebhookMinTier),
-    Callback = function(v)
-        local tierNum = tonumber(string.sub(v, 1, 1))
-        if tierNum then
-            Config.WebhookMinTier = tierNum
-        end
-    end
+    Callback = function(v) Config.WebhookMinTier = tonumber(string.sub(v, 1, 1)) end
 })
-
-Tabs.Webhook:AddButton({
-    Title="Test Webhook", 
-    Callback=function() 
-        if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="Discord OK!", color=65280}}}) end
-        if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTelegram OK!"}) end
-    end
-})
+Tabs.Webhook:AddButton({Title="Test Webhook", Callback=function() 
+    if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="Discord OK!", color=65280}}}) end
+    if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTelegram OK!"}) end
+end})
 
 -- Teleport Tab
 local LocationKeys = {}; for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end; table.sort(LocationKeys)
