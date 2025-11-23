@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v1.4.6 (Self-Loading Variables)
--- Inti Logika Script
--- Script ini akan otomatis mendownload Variables dari URL
+-- Gamen X | Core Logic v1.4.7 (Rarity Filter Update)
+-- Update: Filter Webhook berdasarkan Rarity Tier
+-- Update: Warna Embed Discord dinamis sesuai Tier
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 -- Ganti link ini dengan link RAW GamenX_Variables.lua di GitHub kamu
-local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/refs/heads/main/Modules/Variables.lua"
+local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing...")
+print("[Gamen X] Initializing v1.4.7...")
 
 -- 1. LOAD VARIABLES (Wajib)
 local success, Data = pcall(function()
@@ -19,7 +19,7 @@ if not success or type(Data) ~= "table" then
         Text = "Gagal memuat Variables! Script dihentikan.",
         Duration = 10
     })
-    error("❌ [Gamen X] Critical: Failed to load Variables from URL. Check Variables_URL in Core script.")
+    error("❌ [Gamen X] Critical: Failed to load Variables.")
     return
 end
 
@@ -42,19 +42,16 @@ local successLib, Fluent = pcall(function()
     return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 end)
 
-if not successLib or not Fluent then
-    game:GetService("StarterGui"):SetCore("SendNotification", {Title = "Gamen X Error", Text = "Library Failed!", Duration = 5})
-    return
-end
+if not successLib or not Fluent then return end
 
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Gamen X | Core v1.4.6",
-    SubTitle = "Fish Webhook",
+    Title = "Gamen X | Core v1.4.7",
+    SubTitle = "Rarity Filter",
     TabWidth = 160,
-    Size = UDim2.fromOffset(580, 500),
+    Size = UDim2.fromOffset(580, 520),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
@@ -63,16 +60,26 @@ local Window = Fluent:CreateWindow({
 Fluent:Notify({Title = "Gamen X", Content = "System Ready.", Duration = 3})
 
 -- ====== LOCAL STATE ======
--- Mengambil data dari variable yang baru didownload
 local Config = Data.Config
 local ShopData = Data.ShopData
 local LocationCoords = Data.LocationCoords
+local FishTierMap = Data.FishTierMap or {} -- Database Tier
+local TierColors = Data.TierColors or {}
 
 local SelectedRod, SelectedBait = nil, nil
 local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
+
+-- ====== HELPER: Get Tier Name ======
+local function GetTierName(tier)
+    local names = {
+        [1] = "Common", [2] = "Uncommon", [3] = "Rare",
+        [4] = "Epic", [5] = "Legendary", [6] = "Mythic", [7] = "Secret"
+    }
+    return names[tier] or "Unknown"
+end
 
 -- ====== WEBHOOK SENDER ======
 local function SendWebhook(url, payload)
@@ -90,8 +97,19 @@ end
 local function HandleFishCaught(fishName, fishData)
     if not Config.WebhookFish then return end
     
-    local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "Unknown"
-    local fishInfo = "**" .. tostring(fishName) .. "** | Weight: **" .. weight .. "** kg"
+    -- 1. Cek Tier Ikan
+    local fishNameStr = tostring(fishName)
+    local tier = FishTierMap[fishNameStr] or 1 -- Default Tier 1 jika tidak ada di database
+    
+    -- 2. Filter Rarity (Jika Tier ikan < Pilihan Player, batalkan)
+    if tier < Config.WebhookMinTier then 
+        -- print("[Gamen X] Fish filtered: " .. fishNameStr .. " (Tier " .. tier .. ")")
+        return 
+    end
+    
+    local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "?"
+    local tierName = GetTierName(tier)
+    local tierColor = TierColors[tier] or 16777215 -- Default Putih
     
     -- Discord
     if Config.DiscordUrl ~= "" then
@@ -99,8 +117,8 @@ local function HandleFishCaught(fishName, fishData)
             ["content"] = "",
             ["embeds"] = {{
                 ["title"] = "🎣 Fish Caught!",
-                ["description"] = "You caught a " .. fishInfo,
-                ["color"] = 65280,
+                ["description"] = string.format("**%s**\nWeight: **%s** kg\nRarity: **%s**", fishNameStr, weight, tierName),
+                ["color"] = tierColor,
                 ["footer"] = { ["text"] = "Gamen X | " .. os.date("%X") }
             }}
         }
@@ -109,7 +127,7 @@ local function HandleFishCaught(fishName, fishData)
     
     -- Telegram
     if Config.TelegramToken ~= "" and Config.TelegramChatID ~= "" then
-        local text = "🎣 *Gamen X Notification*\n\nYou caught: " .. tostring(fishName) .. "\nWeight: " .. weight .. " kg"
+        local text = string.format("🎣 *Gamen X Notification*\n\nFish: *%s*\nRarity: *%s*\nWeight: `%s kg`", fishNameStr, tierName, weight)
         local url = "https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage"
         local payload = {
             ["chat_id"] = Config.TelegramChatID,
@@ -149,7 +167,7 @@ task.spawn(function()
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         Events.updateState = NetFolder:WaitForChild("RF/UpdateAutoFishingState", 2)
         
-        -- NEW EVENT LISTENER
+        -- EVENT LISTENER
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
         if Events.fishCaught then
             Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
@@ -208,7 +226,7 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
 }
 
-Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Welcome to Gamen X.\nVersion: 1.4.6"})
+Tabs.Info:AddParagraph({Title = "Gamen X Core", Content = "Version: 1.4.7\nFeature: Rarity Filter Added."})
 
 -- Fishing Tab
 Tabs.Fishing:AddSection("Automation")
@@ -245,6 +263,30 @@ Tabs.Webhook:AddToggle("WebhookFish", {
     Description = "Send webhook when you catch a fish",
     Default = Config.WebhookFish, 
     Callback = function(v) Config.WebhookFish = v end
+})
+
+-- Rarity Filter UI
+Tabs.Webhook:AddDropdown("MinTierSelect", {
+    Title = "Minimum Rarity to Notify",
+    Description = "Only send notification if fish rarity is above or equal to this.",
+    Values = {
+        "1 - Common", 
+        "2 - Uncommon", 
+        "3 - Rare", 
+        "4 - Epic", 
+        "5 - Legendary", 
+        "6 - Mythic", 
+        "7 - Secret"
+    },
+    Default = Config.WebhookMinTier .. " - " .. GetTierName(Config.WebhookMinTier),
+    Callback = function(v)
+        -- Ambil angka pertama dari string (contoh: "5 - Legendary" -> 5)
+        local tierNum = tonumber(string.sub(v, 1, 1))
+        if tierNum then
+            Config.WebhookMinTier = tierNum
+            -- Fluent:Notify({Title = "Filter Updated", Content = "Min Tier: " .. v, Duration = 2})
+        end
+    end
 })
 
 Tabs.Webhook:AddButton({
