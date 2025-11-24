@@ -1,11 +1,12 @@
--- Gamen X | Core Logic v5.0.1 (Fix Inventory Error)
--- Update: Memperbaiki crash saat Refresh Inventory (Nil Value Check)
--- Update: Menambahkan safety check pada string.match
+-- Gamen X | Core Logic v5.1.0 (Inventory Reader Fix)
+-- Update: Memperbaiki logika pembacaan Inventory (Nama Ikan sekarang muncul)
+-- Update: Fix error 'attempt to index string with Value'
+-- Update: Optimasi deteksi folder PlayerData
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v5.0.1...")
+print("[Gamen X] Initializing v5.1.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -35,8 +36,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v5.0.1",
-    SubTitle = "Crash Fix",
+    Title = "Gamen X | Core v5.1.0",
+    SubTitle = "Inventory Fix",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -200,12 +201,19 @@ local function PerformAutoFavorite()
     if not inventory then return end
     local itemsFolder = inventory:FindFirstChild("Items")
     if not itemsFolder then return end
+    
     for _, item in pairs(itemsFolder:GetChildren()) do
-        local itemName = item:FindFirstChild("Name") and item.Name.Value
-        local tier = FishTierMap[itemName] or 0
-        if tier >= 5 then 
-             local isLocked = item:FindFirstChild("Locked") and item.Locked.Value
-             if not isLocked then Events.favorite:FireServer(item.Name) task.wait(0.5) end
+        -- FIXED: Mengambil Value dari Child 'Name' dengan aman
+        local nameObj = item:FindFirstChild("Name")
+        local itemName = nameObj and nameObj.Value
+        
+        if itemName then
+            local tier = FishTierMap[itemName] or 0
+            if tier >= 5 then 
+                 local lockedObj = item:FindFirstChild("Locked")
+                 local isLocked = lockedObj and lockedObj.Value
+                 if not isLocked then Events.favorite:FireServer(item.Name) task.wait(0.5) end
+            end
         end
     end
 end
@@ -233,8 +241,12 @@ local function PerformAutoTrade()
     for _, item in pairs(itemsFolder:GetChildren()) do
         if sentCount >= Config.TradeCount then break end
         
-        local itemName = item:FindFirstChild("Name") and item.Name.Value
-        local isLocked = item:FindFirstChild("Locked") and item.Locked.Value
+        -- FIXED: Mengambil Nama Item dengan Aman
+        local nameObj = item:FindFirstChild("Name")
+        local itemName = nameObj and nameObj.Value
+        
+        local lockedObj = item:FindFirstChild("Locked")
+        local isLocked = lockedObj and lockedObj.Value
         
         if itemName == Config.TradeItem and not isLocked then
             local args = {targetPlayer.UserId, item.Name}
@@ -316,17 +328,19 @@ end
 
 local function GetInventoryList()
     local l = {}
-    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 2) -- Pake WaitForChild biar aman
     local myData = playerData and playerData:FindFirstChild(LocalPlayer.UserId)
     local inventory = myData and myData:FindFirstChild("Inventory")
-    local items = inventory and inventory:FindFirstChild("Items")
+    local items = inventory and inventory:FindFirstChild("Items") -- Folder Items
     
     if items then
         local counts = {}
         for _, item in pairs(items:GetChildren()) do
-            local name = item:FindFirstChild("Name") and item.Name.Value
-            if name then
-                counts[name] = (counts[name] or 0) + 1
+            -- FIX 2: Pastikan Name string value ada sebelum akses .Value
+            local nameObj = item:FindFirstChild("Name")
+            if nameObj and nameObj.Value then
+                local realName = nameObj.Value
+                counts[realName] = (counts[realName] or 0) + 1
             end
         end
         for name, count in pairs(counts) do
@@ -354,7 +368,6 @@ TradeSection:Button({
 local ItemDrop = TradeSection:Dropdown("TradeItem", {
     Title = "Select Item to Trade", Values = GetInventoryList(), Multi = false, Default = 1, Searchable = true,
     Callback = function(v)
-        -- SAFETY CHECK: Pastikan 'v' bukan nil sebelum diproses string.match
         if v then
             Config.TradeItem = string.match(v, "^(.-) %(") or v
         else
@@ -367,7 +380,8 @@ TradeSection:Button({
     Title = "Refresh Inventory", 
     Callback = function() 
         ItemDrop:SetValues(GetInventoryList())
-        ItemDrop:SetValue(nil) -- Reset selection to avoid invalid state
+        ItemDrop:SetValue(nil) 
+        Fluent:Notify({Title="Inventory", Content="Refreshed!", Duration=1})
     end
 })
 
@@ -446,7 +460,7 @@ task.spawn(function() task.wait(0.5); ToggleGroup(DiscGroup, false); ToggleGroup
 -- ====== LOOPS ======
 task.spawn(function()
     while true do
-        if Config.AutoFish and NetworkLoaded then CastRod(); task.wait(Config.FishDelay or 2.0); ReelIn(); else task.wait(0.5) end
+        if Config.AutoFish and NetworkLoaded then CastRod(); task.wait(Config.FishDelay); ReelIn(); task.wait(Config.CatchDelay) else task.wait(0.5) end
         task.wait(0.1) 
     end
 end)
