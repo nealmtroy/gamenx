@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v5.2.0 (Inventory Debug)
--- Update: Memperbaiki logika pembacaan Inventory (Smart Scan)
--- Update: Menambahkan Debug Print di Console (F9) untuk melacak error
--- Update: Mencari ikan di folder 'Items' DAN 'Fish'
+-- Gamen X | Core Logic v5.5.0 (Native Data Integration)
+-- Update: Integrasi Modul Game (ItemUtility & Replion) untuk Akurasi Data
+-- Update: Auto Favorite sekarang menggunakan Data Stream Replion
+-- Update: Smart Fallback jika modul game gagal dimuat
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v5.2.0...")
+print("[Gamen X] Initializing v5.5.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -36,8 +36,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v5.2.0",
-    SubTitle = "Inventory Debug",
+    Title = "Gamen X | Core v5.5.0",
+    SubTitle = "Native Data",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -70,6 +70,7 @@ local SelectedRod, SelectedBait = nil, nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
+local GameModules = {} -- Menyimpan Modul Game (ItemUtility, Replion)
 
 -- ====== ANIMATION HELPERS ======
 local PurpleColor = Color3.fromRGB(170, 85, 255)
@@ -139,10 +140,11 @@ local function HandleFishCaught(fishName, fishData)
     end
 end
 
--- ====== NETWORK LOADER ======
+-- ====== NETWORK & MODULE LOADER ======
 task.spawn(function()
     task.wait(1)
     local success, err = pcall(function()
+        -- 1. Load Remotes (Sleitnick)
         local Packages = ReplicatedStorage:WaitForChild("Packages", 5)
         if not Packages then return end
         local Index = Packages:WaitForChild("_Index", 5)
@@ -153,8 +155,21 @@ task.spawn(function()
         end
         if not NetPackage then return end
         local NetFolder = NetPackage:WaitForChild("net", 5)
+        
+        -- 2. Load Game Modules (Native Data)
         pcall(function() InputControlModule = ReplicatedStorage:WaitForChild("Modules", 2):WaitForChild("InputControl", 2) end)
+        
+        -- Load ItemUtility & Replion (Untuk Auto Favorite yang Akurat)
+        pcall(function()
+            GameModules.ItemUtility = require(ReplicatedStorage:WaitForChild("Shared", 5):WaitForChild("ItemUtility", 5))
+            GameModules.Replion = require(ReplicatedStorage:WaitForChild("Packages", 5):WaitForChild("Replion", 5))
+            if GameModules.Replion then
+                GameModules.PlayerDataReplion = GameModules.Replion.Client:WaitReplion("Data")
+                print("[Gamen X] Native Data Modules Loaded ✅")
+            end
+        end)
 
+        -- Mapping Remotes
         Events.fishing = NetFolder:WaitForChild("RE/FishingCompleted", 2)
         Events.charge = NetFolder:WaitForChild("RF/ChargeFishingRod", 2)
         Events.minigame = NetFolder:WaitForChild("RF/RequestFishingMinigameStarted", 2)
@@ -165,11 +180,13 @@ task.spawn(function()
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         Events.favorite = NetFolder:WaitForChild("RE/FavoriteItem", 2)
         Events.trade = NetFolder:WaitForChild("RF/InitiateTrade", 2)
+        Events.getData = NetFolder:WaitForChild("RF/GetPlayerData", 2)
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
+        
         if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
 
         NetworkLoaded = true
-        Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
+        Fluent:Notify({Title = "Gamen X", Content = "System Connected!", Duration = 3})
     end)
 end)
 
@@ -190,29 +207,95 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ AUTO FAVORITE LOGIC ]]
+-- [[ AUTO FAVORITE LOGIC (NATIVE) ]]
 local function PerformAutoFavorite()
     if not NetworkLoaded or not Events.favorite then return end
+    
+    -- Metode 1: Menggunakan Replion (Paling Akurat & Cepat)
+    if GameModules.PlayerDataReplion then
+        local success, data = pcall(function() return GameModules.PlayerDataReplion:Get() end)
+        if success and data and data.Inventory and data.Inventory.Items then
+            for uuid, itemData in pairs(data.Inventory.Items) do
+                -- Cek jika item adalah ikan (biasanya punya Tier/Name)
+                local itemName = itemData.Name
+                local tier = FishTierMap[itemName] or 0
+                local isLocked = itemData.Locked
+                
+                if tier >= 5 and not isLocked then
+                     print("[Gamen X] Auto Locking (Native): " .. tostring(itemName))
+                     Events.favorite:FireServer(uuid) -- UUID adalah key di table Replion
+                     task.wait(0.3)
+                end
+            end
+            return -- Selesai jika metode ini berhasil
+        end
+    end
+    
+    -- Metode 2: Folder Scan (Fallback jika Modul Game Gagal)
     local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
-    local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId)) -- Fix tostring
+    local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
     local inventory = myData and myData:FindFirstChild("Inventory")
-    local itemsFolder = inventory and inventory:FindFirstChild("Items")
+    local itemsFolder = inventory and (inventory:FindFirstChild("Items") or inventory:FindFirstChild("Fish"))
     
-    if not itemsFolder then return end
-    
-    for _, item in pairs(itemsFolder:GetChildren()) do
-        local nameObj = item:FindFirstChild("Name")
-        local itemName = nameObj and nameObj.Value
-        
-        if itemName then
-            local tier = FishTierMap[itemName] or 0
-            if tier >= 5 then 
-                 local lockedObj = item:FindFirstChild("Locked")
-                 local isLocked = lockedObj and lockedObj.Value
-                 if not isLocked then Events.favorite:FireServer(item.Name) task.wait(0.5) end
+    if itemsFolder then
+        for _, item in pairs(itemsFolder:GetChildren()) do
+            local nameObj = item:FindFirstChild("Name")
+            local itemName = nameObj and nameObj.Value
+            if itemName then
+                local tier = FishTierMap[itemName] or 0
+                if tier >= 5 then 
+                     local lockedObj = item:FindFirstChild("Locked")
+                     local isLocked = lockedObj and lockedObj.Value
+                     if not isLocked then Events.favorite:FireServer(item.Name) task.wait(0.5) end
+                end
             end
         end
     end
+end
+
+-- [[ SMART INVENTORY SCANNER ]]
+local function GetInventoryList()
+    local items = {}
+    local counts = {}
+    
+    -- Metode 1: Replion Data (Prioritas)
+    if GameModules.PlayerDataReplion then
+        local success, data = pcall(function() return GameModules.PlayerDataReplion:Get() end)
+        if success and data and data.Inventory and data.Inventory.Items then
+            for _, itemData in pairs(data.Inventory.Items) do
+                local name = itemData.Name
+                if name then counts[name] = (counts[name] or 0) + (itemData.Amount or 1) end
+            end
+        end
+    -- Metode 2: Remote Function
+    elseif Events.getData then
+        local success, data = pcall(function() return Events.getData:InvokeServer() end)
+        if success and data and data.Inventory then
+            for _, item in pairs(data.Inventory) do
+                local name = item.Name
+                if name then counts[name] = (counts[name] or 0) + (item.Amount or 1) end
+            end
+        end
+    end
+    
+    -- Jika kosong, coba scan folder (Backup Terakhir)
+    if next(counts) == nil then
+        local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+        local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
+        local inventory = myData and myData:FindFirstChild("Inventory")
+        local itemsFolder = inventory and (inventory:FindFirstChild("Items") or inventory:FindFirstChild("Fish"))
+        if itemsFolder then
+            for _, item in pairs(itemsFolder:GetChildren()) do
+                local nameObj = item:FindFirstChild("Name")
+                if nameObj and nameObj.Value then counts[nameObj.Value] = (counts[nameObj.Value] or 0) + 1 end
+            end
+        end
+    end
+
+    for name, count in pairs(counts) do table.insert(items, name .. " (x"..count..")") end
+    if #items == 0 then table.insert(items, "Empty Inventory") end
+    table.sort(items)
+    return items
 end
 
 -- [[ TRADING LOGIC ]]
@@ -225,30 +308,45 @@ local function PerformAutoTrade()
         return
     end
     
-    -- SMART SCAN INVENTORY
-    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
-    local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
-    local inventory = myData and myData:FindFirstChild("Inventory")
-    local itemsFolder = inventory and inventory:FindFirstChild("Items") -- Cek Items dulu
-    if not itemsFolder and inventory then itemsFolder = inventory:FindFirstChild("Fish") end -- Cek Fish sebagai backup
+    -- Gunakan GetInventoryList logic tapi ambil UUID-nya
+    -- Kita scan folder/replion untuk dapat UUID item yang mau ditrade
+    local itemsToSend = {}
     
-    if not itemsFolder then return end
+    if GameModules.PlayerDataReplion then
+        -- Pake Replion
+        local success, data = pcall(function() return GameModules.PlayerDataReplion:Get() end)
+        if success and data.Inventory and data.Inventory.Items then
+            for uuid, itemData in pairs(data.Inventory.Items) do
+                if itemData.Name == Config.TradeItem and not itemData.Locked then
+                    table.insert(itemsToSend, uuid)
+                end
+            end
+        end
+    else
+        -- Fallback Folder
+        local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+        local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
+        local inventory = myData and myData:FindFirstChild("Inventory")
+        local itemsFolder = inventory and (inventory:FindFirstChild("Items") or inventory:FindFirstChild("Fish"))
+        if itemsFolder then
+            for _, item in pairs(itemsFolder:GetChildren()) do
+                local nameObj = item:FindFirstChild("Name")
+                local lockedObj = item:FindFirstChild("Locked")
+                if nameObj and nameObj.Value == Config.TradeItem and (not lockedObj or not lockedObj.Value) then
+                    table.insert(itemsToSend, item.Name) -- UUID
+                end
+            end
+        end
+    end
     
     local sentCount = 0
-    for _, item in pairs(itemsFolder:GetChildren()) do
+    for _, uuid in ipairs(itemsToSend) do
         if sentCount >= Config.TradeCount then break end
-        local nameObj = item:FindFirstChild("Name")
-        local itemName = nameObj and nameObj.Value
-        local lockedObj = item:FindFirstChild("Locked")
-        local isLocked = lockedObj and lockedObj.Value
-        
-        if itemName == Config.TradeItem and not isLocked then
-            local args = {targetPlayer.UserId, item.Name}
-            local success = pcall(function() Events.trade:InvokeServer(unpack(args)) end)
-            if success then
-                sentCount = sentCount + 1
-                task.wait(Config.TradeDelay)
-            end
+        local args = {targetPlayer.UserId, uuid}
+        local success = pcall(function() Events.trade:InvokeServer(unpack(args)) end)
+        if success then
+            sentCount = sentCount + 1
+            task.wait(Config.TradeDelay)
         end
     end
     
@@ -312,55 +410,11 @@ local Tog4 = Tabs.Main:Toggle("AutoSell", {Title="Enable Auto Sell", Default=fal
 table.insert(SellGroup, Inp3); table.insert(SellGroup, Tog4)
 task.spawn(function() task.wait(0.5); ToggleGroup(FishingGroup, false); ToggleGroup(SellGroup, false) end)
 
--- === TAB: TRADING (SMART INVENTORY READER) ===
+-- === TAB: TRADING ===
 local function GetPlayerList()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
     if #l==0 then table.insert(l, "No Players") end
-    return l
-end
-
--- UPDATED: DEBUG INVENTORY LIST
-local function GetInventoryList()
-    local l = {}
-    print("[Gamen X Debug] Scanning Inventory...")
-    
-    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
-    if not playerData then print("- PlayerData Missing"); return {"Error: No PlayerData"} end
-    
-    local myData = playerData:FindFirstChild(tostring(LocalPlayer.UserId))
-    if not myData then print("- MyData Missing"); return {"Error: No User Data"} end
-    
-    local inventory = myData:FindFirstChild("Inventory")
-    if not inventory then print("- Inventory Folder Missing"); return {"Error: No Inv Folder"} end
-    
-    -- Cek dua folder kemungkinan
-    local foldersToCheck = {inventory:FindFirstChild("Items"), inventory:FindFirstChild("Fish")}
-    local counts = {}
-    local found = false
-    
-    for _, folder in pairs(foldersToCheck) do
-        if folder then
-            print("- Checking Folder: " .. folder.Name)
-            for _, item in pairs(folder:GetChildren()) do
-                local nameObj = item:FindFirstChild("Name")
-                if nameObj and nameObj.Value then
-                    local realName = nameObj.Value
-                    counts[realName] = (counts[realName] or 0) + 1
-                    found = true
-                end
-            end
-        end
-    end
-    
-    if not found then print("- No Items Found in valid folders"); end
-    
-    for name, count in pairs(counts) do
-        table.insert(l, name .. " (x"..count..")")
-    end
-    
-    if #l==0 then table.insert(l, "Empty Inventory") end
-    table.sort(l)
     return l
 end
 
@@ -377,7 +431,7 @@ TradeSection:Button({
 })
 
 local ItemDrop = TradeSection:Dropdown("TradeItem", {
-    Title = "Select Item to Trade", Values = GetInventoryList(), Multi = false, Default = 1, Searchable = true,
+    Title = "Select Item to Trade", Values = {"Click Refresh first"}, Multi = false, Default = 1, Searchable = true,
     Callback = function(v)
         if v then
             Config.TradeItem = string.match(v, "^(.-) %(") or v
@@ -390,9 +444,10 @@ local ItemDrop = TradeSection:Dropdown("TradeItem", {
 TradeSection:Button({
     Title = "Refresh Inventory", 
     Callback = function() 
-        ItemDrop:SetValues(GetInventoryList())
+        local list = GetInventoryList()
+        ItemDrop:SetValues(list)
         ItemDrop:SetValue(nil) 
-        Fluent:Notify({Title="Inventory", Content="Refreshed (Check F9 if empty)", Duration=1})
+        Fluent:Notify({Title="Inventory", Content="Refreshed via Native Data!", Duration=1})
     end
 })
 
