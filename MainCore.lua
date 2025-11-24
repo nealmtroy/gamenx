@@ -1,12 +1,11 @@
--- Gamen X | Core Logic v5.0.0 (Trading System)
--- Update: Menambahkan Tab Trading
--- Update: Fitur pilih Player & Item dari Inventory
--- Update: Auto Trade Loop (Mengirim Item sesuai jumlah)
+-- Gamen X | Core Logic v5.0.1 (Fix Inventory Error)
+-- Update: Memperbaiki crash saat Refresh Inventory (Nil Value Check)
+-- Update: Menambahkan safety check pada string.match
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v5.0.0...")
+print("[Gamen X] Initializing v5.0.1...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -36,8 +35,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v5.0.0",
-    SubTitle = "Trading Update",
+    Title = "Gamen X | Core v5.0.1",
+    SubTitle = "Crash Fix",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -54,9 +53,9 @@ Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
 Config.AutoFavorite = false
-Config.AutoTrade = false -- NEW
-Config.TradeCount = 1 -- NEW
-Config.TradeDelay = 1.0 -- NEW
+Config.AutoTrade = false
+Config.TradeCount = 1
+Config.TradeDelay = 1.0
 Config.WebhookFish = false
 Config.WebhookMinTier = 1
 
@@ -164,7 +163,7 @@ task.spawn(function()
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
         Events.favorite = NetFolder:WaitForChild("RE/FavoriteItem", 2)
-        Events.trade = NetFolder:WaitForChild("RF/InitiateTrade", 2) -- NEW REMOTE
+        Events.trade = NetFolder:WaitForChild("RF/InitiateTrade", 2)
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
         if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
 
@@ -215,7 +214,6 @@ end
 local function PerformAutoTrade()
     if not NetworkLoaded or not Events.trade or not Config.AutoTrade then return end
     
-    -- 1. Cari Player Target
     local targetPlayer = Players:FindFirstChild(Config.TradePlayer)
     if not targetPlayer then 
         Fluent:Notify({Title="Trade Error", Content="Player not found!", Duration=2})
@@ -223,7 +221,6 @@ local function PerformAutoTrade()
         return
     end
     
-    -- 2. Cari Item di Inventory
     local playerData = ReplicatedStorage:WaitForChild("PlayerData", 5)
     local myData = playerData:FindFirstChild(LocalPlayer.UserId)
     local inventory = myData and myData:FindFirstChild("Inventory")
@@ -234,36 +231,30 @@ local function PerformAutoTrade()
     local sentCount = 0
     
     for _, item in pairs(itemsFolder:GetChildren()) do
-        if sentCount >= Config.TradeCount then break end -- Stop jika sudah cukup
+        if sentCount >= Config.TradeCount then break end
         
         local itemName = item:FindFirstChild("Name") and item.Name.Value
         local isLocked = item:FindFirstChild("Locked") and item.Locked.Value
         
         if itemName == Config.TradeItem and not isLocked then
-            -- Kirim Trade Request
-            -- Args: [UserId, UUID]
-            local args = {
-                targetPlayer.UserId,
-                item.Name -- Nama folder biasanya UUID
-            }
-            
+            local args = {targetPlayer.UserId, item.Name}
             local success = pcall(function() Events.trade:InvokeServer(unpack(args)) end)
             if success then
                 sentCount = sentCount + 1
-                task.wait(Config.TradeDelay) -- Delay biar gak spam parah
+                task.wait(Config.TradeDelay)
             end
         end
     end
     
     Fluent:Notify({Title="Trading", Content="Sent "..sentCount.." request(s).", Duration=3})
-    Config.AutoTrade = false -- Matikan setelah selesai loop (safety)
+    Config.AutoTrade = false 
 end
 
 -- ====== TABS ======
 local Tabs = {
     Main = Window:Tab({ Title = "Main", Icon = "home" }),
     Teleport = Window:Tab({ Title = "Teleport", Icon = "map-pin" }),
-    Trading = Window:Tab({ Title = "Trading", Icon = "repeat" }), -- NEW TAB
+    Trading = Window:Tab({ Title = "Trading", Icon = "repeat" }),
     Merchant = Window:Tab({ Title = "Shop", Icon = "shopping-cart" }),
     Webhook = Window:Tab({ Title = "Webhook", Icon = "bell" }),
     Settings = Window:Tab({ Title = "Settings", Icon = "settings" }),
@@ -315,7 +306,7 @@ local Tog4 = Tabs.Main:Toggle("AutoSell", {Title="Enable Auto Sell", Default=fal
 table.insert(SellGroup, Inp3); table.insert(SellGroup, Tog4)
 task.spawn(function() task.wait(0.5); ToggleGroup(FishingGroup, false); ToggleGroup(SellGroup, false) end)
 
--- === TAB: TRADING (NEW) ===
+-- === TAB: TRADING (FIXED REFRESH) ===
 local function GetPlayerList()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
@@ -325,7 +316,6 @@ end
 
 local function GetInventoryList()
     local l = {}
-    -- Scan Inventory Realtime
     local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
     local myData = playerData and playerData:FindFirstChild(LocalPlayer.UserId)
     local inventory = myData and myData:FindFirstChild("Inventory")
@@ -363,15 +353,22 @@ TradeSection:Button({
 
 local ItemDrop = TradeSection:Dropdown("TradeItem", {
     Title = "Select Item to Trade", Values = GetInventoryList(), Multi = false, Default = 1, Searchable = true,
-    Callback = function(v) 
-        -- Hapus (x99) dari string untuk dapat nama murni
-        Config.TradeItem = string.match(v, "^(.-) %(") or v 
+    Callback = function(v)
+        -- SAFETY CHECK: Pastikan 'v' bukan nil sebelum diproses string.match
+        if v then
+            Config.TradeItem = string.match(v, "^(.-) %(") or v
+        else
+            Config.TradeItem = nil
+        end
     end
 })
 
 TradeSection:Button({
     Title = "Refresh Inventory", 
-    Callback = function() ItemDrop:SetValues(GetInventoryList()); ItemDrop:SetValue(nil) end
+    Callback = function() 
+        ItemDrop:SetValues(GetInventoryList())
+        ItemDrop:SetValue(nil) -- Reset selection to avoid invalid state
+    end
 })
 
 TradeSection:Input("TradeCount", {
@@ -383,7 +380,7 @@ TradeSection:Toggle("AutoTrade", {
     Title = "Start Trading", Description = "Will send requests sequentially", Default = false,
     Callback = function(v) 
         Config.AutoTrade = v 
-        if v then PerformAutoTrade() end -- Langsung eksekusi saat di-toggle ON
+        if v then PerformAutoTrade() end 
     end
 })
 
