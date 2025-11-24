@@ -1,13 +1,12 @@
--- Gamen X | Core Logic v4.0.0 (Purple Accordion Layout)
--- Update: Mengubah semua animasi garis menjadi UNGU
--- Update: Main Tab dipisah jadi 'Fishing Feature' & 'Auto Sell' (Accordion)
--- Update: Webhook Tab dipisah jadi 'Discord' & 'Telegram' (Accordion + Rarity per menu)
--- Update: Urutan UI disesuaikan (Input Delay di atas, Toggle di bawah)
+-- Gamen X | Core Logic v5.0.0 (Trading System)
+-- Update: Menambahkan Tab Trading
+-- Update: Fitur pilih Player & Item dari Inventory
+-- Update: Auto Trade Loop (Mengirim Item sesuai jumlah)
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v4.0.0 (Purple Layout)...")
+print("[Gamen X] Initializing v5.0.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -15,7 +14,7 @@ local success, Data = pcall(function()
 end)
 
 if not success or type(Data) ~= "table" then
-    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {} }
+    Data = { Config = {}, ShopData = {Rods={}, Baits={}}, LocationCoords = {}, InventoryMap={} }
     warn("[Gamen X] Variables failed. Using defaults.")
 end
 
@@ -37,9 +36,9 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v4.0.0",
-    SubTitle = "Purple Edition",
-    TabWidth = 160,
+    Title = "Gamen X | Core v5.0.0",
+    SubTitle = "Trading Update",
+    TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
     Acrylic = true,
@@ -51,36 +50,34 @@ local Options = Fluent.Options
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
--- Default Safety
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
-Config.FishDelay = 2.0
-Config.SellDelay = 10.0
+Config.AutoFavorite = false
+Config.AutoTrade = false -- NEW
+Config.TradeCount = 1 -- NEW
+Config.TradeDelay = 1.0 -- NEW
 Config.WebhookFish = false
 Config.WebhookMinTier = 1
 
 local ShopData = Data.ShopData or {Rods={}, Baits={}}
 local LocationCoords = Data.LocationCoords or {}
 local FishTierMap = Data.FishTierMap or {}
+local InventoryMap = Data.InventoryMap or {}
 local TierColors = Data.TierColors or {}
 
 local SelectedRod, SelectedBait = nil, nil
-local currentMode, selectedTarget = "None", nil
 local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
 
--- ====== ANIMATION HELPERS (PURPLE THEME) ======
-local PurpleColor = Color3.fromRGB(170, 85, 255) -- Warna Ungu Global
-
+-- ====== ANIMATION HELPERS ======
+local PurpleColor = Color3.fromRGB(170, 85, 255)
 local function AddActiveLine(element, color)
     local frame = nil
     if element.Frame then frame = element.Frame 
     elseif element.Instance and element.Instance.Frame then frame = element.Instance.Frame end
-    
     if not frame then return nil end
-
     local line = Instance.new("Frame")
     line.Name = "ActiveIndicator"
     line.BackgroundColor3 = color or PurpleColor
@@ -91,15 +88,12 @@ local function AddActiveLine(element, color)
     line.Parent = frame
     return line
 end
-
 local function AnimateLine(line, isActive)
     if not line then return end
     local targetSize = isActive and UDim2.new(1, 0, 0, 2) or UDim2.new(0, 0, 0, 2)
     local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     TweenService:Create(line, tweenInfo, {Size = targetSize}):Play()
 end
-
--- ====== VISIBILITY HELPER ======
 local function SetItemVisible(item, state)
     pcall(function()
         if item then
@@ -110,7 +104,6 @@ local function SetItemVisible(item, state)
         end
     end)
 end
-
 local function ToggleGroup(group, state)
     for _, item in pairs(group) do SetItemVisible(item, state) end
 end
@@ -133,33 +126,16 @@ local function HandleFishCaught(fishName, fishData)
     local fishNameStr = tostring(fishName)
     local tier = FishTierMap[fishNameStr] or 1
     if tier < Config.WebhookMinTier then return end
-    
     local weight = (fishData and fishData.Weight) and tostring(fishData.Weight) or "?"
     local tierName = "Tier " .. tostring(tier)
     local tierColor = TierColors[tier] or 16777215
-    
-    -- Discord Payload
-    if Config.WebhookDiscord and Config.DiscordUrl ~= "" then
+    if Config.DiscordUrl and Config.DiscordUrl ~= "" then
         local contentMsg = Config.DiscordID ~= "" and "<@"..Config.DiscordID..">" or ""
-        SendWebhook(Config.DiscordUrl, {
-            ["content"] = contentMsg,
-            ["embeds"] = {{
-                ["title"] = "🎣 Fish Caught!",
-                ["description"] = string.format("**%s**\nWeight: **%s** kg\nRarity: **%s**", fishNameStr, weight, tierName),
-                ["color"] = tierColor,
-                ["footer"] = { ["text"] = "Gamen X | " .. os.date("%X") }
-            }}
-        })
+        SendWebhook(Config.DiscordUrl, {content = contentMsg, embeds = {{title = "🎣 Fish Caught!", description = string.format("**%s**\nWeight: **%s** kg\nRarity: **%s**", fishNameStr, weight, tierName), color = tierColor, footer = { ["text"] = "Gamen X | " .. os.date("%X") }}}})
     end
-    
-    -- Telegram Payload
-    if Config.WebhookTelegram and Config.TelegramToken ~= "" then
+    if Config.TelegramToken and Config.TelegramToken ~= "" then
         local tagMsg = Config.TelegramUserID ~= "" and "["..Config.TelegramUserID.."](tg://user?id="..Config.TelegramUserID..") " or ""
-        SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {
-            ["chat_id"] = Config.TelegramChatID,
-            ["text"] = string.format("🎣 *Gamen X Notification*\n%s\nYou caught: *%s*\nRarity: *%s*\nWeight: `%s kg`", tagMsg, fishNameStr, tierName, weight),
-            ["parse_mode"] = "Markdown"
-        })
+        SendWebhook("https://api.telegram.org/bot" .. Config.TelegramToken .. "/sendMessage", {chat_id = Config.TelegramChatID, text = string.format("🎣 *Gamen X Notification*\n%s\nYou caught: *%s*\nRarity: *%s*\nWeight: `%s kg`", tagMsg, fishNameStr, tierName, weight), parse_mode = "Markdown"})
     end
 end
 
@@ -171,15 +147,11 @@ task.spawn(function()
         if not Packages then return end
         local Index = Packages:WaitForChild("_Index", 5)
         if not Index then return end
-        
         local NetPackage = Index:FindFirstChild("sleitnick_net@0.2.0")
         if not NetPackage then
-            for _, child in pairs(Index:GetChildren()) do
-                if child.Name:find("sleitnick_net") then NetPackage = child break end
-            end
+            for _, child in pairs(Index:GetChildren()) do if child.Name:find("sleitnick_net") then NetPackage = child break end end
         end
         if not NetPackage then return end
-
         local NetFolder = NetPackage:WaitForChild("net", 5)
         pcall(function() InputControlModule = ReplicatedStorage:WaitForChild("Modules", 2):WaitForChild("InputControl", 2) end)
 
@@ -191,11 +163,10 @@ task.spawn(function()
         Events.sell = NetFolder:WaitForChild("RF/SellAllItems", 2)
         Events.buyRod = NetFolder:WaitForChild("RF/PurchaseFishingRod", 2)
         Events.buyBait = NetFolder:WaitForChild("RF/PurchaseBait", 2)
-        
+        Events.favorite = NetFolder:WaitForChild("RE/FavoriteItem", 2)
+        Events.trade = NetFolder:WaitForChild("RF/InitiateTrade", 2) -- NEW REMOTE
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
-        if Events.fishCaught then
-            Events.fishCaught.OnClientEvent:Connect(HandleFishCaught)
-        end
+        if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
 
         NetworkLoaded = true
         Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
@@ -219,27 +190,93 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
+-- [[ AUTO FAVORITE LOGIC ]]
+local function PerformAutoFavorite()
+    if not NetworkLoaded or not Events.favorite then return end
+    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 5)
+    if not playerData then return end
+    local myData = playerData:FindFirstChild(LocalPlayer.UserId)
+    if not myData then return end
+    local inventory = myData:FindFirstChild("Inventory")
+    if not inventory then return end
+    local itemsFolder = inventory:FindFirstChild("Items")
+    if not itemsFolder then return end
+    for _, item in pairs(itemsFolder:GetChildren()) do
+        local itemName = item:FindFirstChild("Name") and item.Name.Value
+        local tier = FishTierMap[itemName] or 0
+        if tier >= 5 then 
+             local isLocked = item:FindFirstChild("Locked") and item.Locked.Value
+             if not isLocked then Events.favorite:FireServer(item.Name) task.wait(0.5) end
+        end
+    end
+end
+
+-- [[ TRADING LOGIC ]]
+local function PerformAutoTrade()
+    if not NetworkLoaded or not Events.trade or not Config.AutoTrade then return end
+    
+    -- 1. Cari Player Target
+    local targetPlayer = Players:FindFirstChild(Config.TradePlayer)
+    if not targetPlayer then 
+        Fluent:Notify({Title="Trade Error", Content="Player not found!", Duration=2})
+        Config.AutoTrade = false
+        return
+    end
+    
+    -- 2. Cari Item di Inventory
+    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 5)
+    local myData = playerData:FindFirstChild(LocalPlayer.UserId)
+    local inventory = myData and myData:FindFirstChild("Inventory")
+    local itemsFolder = inventory and inventory:FindFirstChild("Items")
+    
+    if not itemsFolder then return end
+    
+    local sentCount = 0
+    
+    for _, item in pairs(itemsFolder:GetChildren()) do
+        if sentCount >= Config.TradeCount then break end -- Stop jika sudah cukup
+        
+        local itemName = item:FindFirstChild("Name") and item.Name.Value
+        local isLocked = item:FindFirstChild("Locked") and item.Locked.Value
+        
+        if itemName == Config.TradeItem and not isLocked then
+            -- Kirim Trade Request
+            -- Args: [UserId, UUID]
+            local args = {
+                targetPlayer.UserId,
+                item.Name -- Nama folder biasanya UUID
+            }
+            
+            local success = pcall(function() Events.trade:InvokeServer(unpack(args)) end)
+            if success then
+                sentCount = sentCount + 1
+                task.wait(Config.TradeDelay) -- Delay biar gak spam parah
+            end
+        end
+    end
+    
+    Fluent:Notify({Title="Trading", Content="Sent "..sentCount.." request(s).", Duration=3})
+    Config.AutoTrade = false -- Matikan setelah selesai loop (safety)
+end
+
 -- ====== TABS ======
 local Tabs = {
     Main = Window:Tab({ Title = "Main", Icon = "home" }),
     Teleport = Window:Tab({ Title = "Teleport", Icon = "map-pin" }),
+    Trading = Window:Tab({ Title = "Trading", Icon = "repeat" }), -- NEW TAB
     Merchant = Window:Tab({ Title = "Shop", Icon = "shopping-cart" }),
     Webhook = Window:Tab({ Title = "Webhook", Icon = "bell" }),
     Settings = Window:Tab({ Title = "Settings", Icon = "settings" }),
 }
 
--- ==========================================
--- TAB: MAIN (ACCORDION LAYOUT)
--- ==========================================
+-- === TAB: MAIN ===
 local FishingGroup = {}
 local FishingLine = nil
 local FishingOpen = false
-
 local SellGroup = {}
 local SellLine = nil
 local SellOpen = false
 
--- [[ 1. FISHING FEATURE ]]
 local FishHeader = Tabs.Main:Button({
     Title = "📂 Fishing Feature",
     Description = "Click to Expand",
@@ -247,26 +284,19 @@ local FishHeader = Tabs.Main:Button({
         FishingOpen = not FishingOpen
         ToggleGroup(FishingGroup, FishingOpen)
         AnimateLine(FishingLine, FishingOpen)
-        
-        if FishingOpen then -- Close other
-            SellOpen = false; ToggleGroup(SellGroup, false); AnimateLine(SellLine, false)
-        end
+        if FishingOpen then SellOpen=false; ToggleGroup(SellGroup,false); AnimateLine(SellLine,false) end
     end
 })
 FishingLine = AddActiveLine(FishHeader, PurpleColor)
 
--- Urutan: Input Delay dulu, baru Toggle
 local Inp1 = Tabs.Main:Input("FishDelay", {Title="Fish Delay (Bite Time)", Default="2.0", Numeric=true, Finished=true, Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end})
 local Inp2 = Tabs.Main:Input("CatchDelay", {Title="Catch Delay (Cooldown)", Default="0.5", Numeric=true, Finished=true, Callback=function(v) Config.CatchDelay=tonumber(v) or 0.5 end})
 local Tog1 = Tabs.Main:Toggle("AutoFish", {Title="Enable Auto Fish", Default=false, Callback=function(v) Config.AutoFish=v end})
 local Tog2 = Tabs.Main:Toggle("AutoEquip", {Title="Auto Equip Rod", Default=false, Callback=function(v) Config.AutoEquip=v end})
+local Tog3 = Tabs.Main:Toggle("AutoFavorite", {Title="Auto Favorite (Legendary+)", Description="Auto lock rare fish", Default=false, Callback=function(v) Config.AutoFavorite=v end})
 
-table.insert(FishingGroup, Inp1)
-table.insert(FishingGroup, Inp2)
-table.insert(FishingGroup, Tog1)
-table.insert(FishingGroup, Tog2)
+table.insert(FishingGroup, Inp1); table.insert(FishingGroup, Inp2); table.insert(FishingGroup, Tog1); table.insert(FishingGroup, Tog2); table.insert(FishingGroup, Tog3)
 
--- [[ 2. AUTO SELL ]]
 local SellHeader = Tabs.Main:Button({
     Title = "📂 Auto Sell",
     Description = "Click to Expand",
@@ -274,159 +304,112 @@ local SellHeader = Tabs.Main:Button({
         SellOpen = not SellOpen
         ToggleGroup(SellGroup, SellOpen)
         AnimateLine(SellLine, SellOpen)
-        
-        if SellOpen then -- Close other
-            FishingOpen = false; ToggleGroup(FishingGroup, false); AnimateLine(FishingLine, false)
-        end
+        if SellOpen then FishingOpen=false; ToggleGroup(FishingGroup,false); AnimateLine(FishingLine,false) end
     end
 })
 SellLine = AddActiveLine(SellHeader, PurpleColor)
 
 local Inp3 = Tabs.Main:Input("SellDelay", {Title="Sell Delay (Seconds)", Default="10", Numeric=true, Finished=true, Callback=function(v) Config.SellDelay=tonumber(v) or 10 end})
-local Tog3 = Tabs.Main:Toggle("AutoSell", {Title="Enable Auto Sell", Default=false, Callback=function(v) Config.AutoSell=v end})
+local Tog4 = Tabs.Main:Toggle("AutoSell", {Title="Enable Auto Sell", Default=false, Callback=function(v) Config.AutoSell=v end})
 
-table.insert(SellGroup, Inp3)
-table.insert(SellGroup, Tog3)
+table.insert(SellGroup, Inp3); table.insert(SellGroup, Tog4)
+task.spawn(function() task.wait(0.5); ToggleGroup(FishingGroup, false); ToggleGroup(SellGroup, false) end)
 
-
--- ==========================================
--- TAB: WEBHOOK (ACCORDION LAYOUT)
--- ==========================================
-local DiscGroup = {}
-local DiscLine = nil
-local DiscOpen = false
-
-local TeleGroup = {}
-local TeleLine = nil
-local TeleOpen = false
-
--- [[ 1. DISCORD WEBHOOK ]]
-local DiscHeader = Tabs.Webhook:Button({
-    Title = "📂 Discord Webhook",
-    Description = "Settings for Discord Notification",
-    Callback = function()
-        DiscOpen = not DiscOpen
-        ToggleGroup(DiscGroup, DiscOpen)
-        AnimateLine(DiscLine, DiscOpen)
-        
-        if DiscOpen then
-            TeleOpen = false; ToggleGroup(TeleGroup, false); AnimateLine(TeleLine, false)
-        end
-    end
-})
-DiscLine = AddActiveLine(DiscHeader, PurpleColor)
-
-local D1 = Tabs.Webhook:Input("DiscordUrl", {Title="Webhook URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
-local D2 = Tabs.Webhook:Input("DiscordID", {Title="Discord User ID", Description="Tag User (<@ID>)", Default="", Callback=function(v) Config.DiscordID=v end})
-local D3 = Tabs.Webhook:Toggle("WebhookDiscord", {Title="Enable Discord", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
-local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
-local D4 = Tabs.Webhook:Dropdown("DiscMinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier=tonumber(string.sub(v,1,1)) end})
-local D5 = Tabs.Webhook:Button({Title="Test Discord", Callback=function() 
-    if Config.DiscordUrl~="" then 
-        local c = Config.DiscordID~="" and "<@"..Config.DiscordID..">" or ""
-        SendWebhook(Config.DiscordUrl, {content=c, embeds={{title="Gamen X", description="Test Discord OK!", color=65280}}}) 
-    end 
-end})
-
-table.insert(DiscGroup, D1); table.insert(DiscGroup, D2); table.insert(DiscGroup, D3); table.insert(DiscGroup, D4); table.insert(DiscGroup, D5)
-
--- [[ 2. TELEGRAM WEBHOOK ]]
-local TeleHeader = Tabs.Webhook:Button({
-    Title = "📂 Telegram Webhook",
-    Description = "Settings for Telegram Notification",
-    Callback = function()
-        TeleOpen = not TeleOpen
-        ToggleGroup(TeleGroup, TeleOpen)
-        AnimateLine(TeleLine, TeleOpen)
-        
-        if TeleOpen then
-            DiscOpen = false; ToggleGroup(DiscGroup, false); AnimateLine(DiscLine, false)
-        end
-    end
-})
-TeleLine = AddActiveLine(TeleHeader, PurpleColor)
-
-local T1 = Tabs.Webhook:Input("TeleToken", {Title="Bot Token", Default="", Callback=function(v) Config.TelegramToken=v end})
-local T2 = Tabs.Webhook:Input("TeleChatID", {Title="Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
-local T3 = Tabs.Webhook:Toggle("WebhookTelegram", {Title="Enable Telegram", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
--- Note: Menggunakan config min tier yang sama agar sinkron
-local T4 = Tabs.Webhook:Dropdown("TeleMinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier=tonumber(string.sub(v,1,1)) end})
-local T5 = Tabs.Webhook:Button({Title="Test Telegram", Callback=function()
-    if Config.TelegramToken~="" then 
-        SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X\nTest Telegram OK!"}) 
-    end 
-end})
-
-table.insert(TeleGroup, T1); table.insert(TeleGroup, T2); table.insert(TeleGroup, T3); table.insert(TeleGroup, T4); table.insert(TeleGroup, T5)
-
-
--- ==========================================
--- TAB: TELEPORT (ACCORDION - UNGU)
--- ==========================================
-local function GetPlayerNames()
+-- === TAB: TRADING (NEW) ===
+local function GetPlayerList()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
     if #l==0 then table.insert(l, "No Players") end
     return l
 end
-local LocationKeys = {}
-if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end
-table.sort(LocationKeys)
 
+local function GetInventoryList()
+    local l = {}
+    -- Scan Inventory Realtime
+    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+    local myData = playerData and playerData:FindFirstChild(LocalPlayer.UserId)
+    local inventory = myData and myData:FindFirstChild("Inventory")
+    local items = inventory and inventory:FindFirstChild("Items")
+    
+    if items then
+        local counts = {}
+        for _, item in pairs(items:GetChildren()) do
+            local name = item:FindFirstChild("Name") and item.Name.Value
+            if name then
+                counts[name] = (counts[name] or 0) + 1
+            end
+        end
+        for name, count in pairs(counts) do
+            table.insert(l, name .. " (x"..count..")")
+        end
+    end
+    
+    if #l==0 then table.insert(l, "Empty Inventory") end
+    table.sort(l)
+    return l
+end
+
+local TradeSection = Tabs.Trading:Section("Trade Settings")
+
+local PlayerDrop = TradeSection:Dropdown("TradePlayer", {
+    Title = "Select Player", Values = GetPlayerList(), Multi = false, Default = 1, Searchable = true,
+    Callback = function(v) Config.TradePlayer = v end
+})
+
+TradeSection:Button({
+    Title = "Refresh Players", 
+    Callback = function() PlayerDrop:SetValues(GetPlayerList()); PlayerDrop:SetValue(nil) end
+})
+
+local ItemDrop = TradeSection:Dropdown("TradeItem", {
+    Title = "Select Item to Trade", Values = GetInventoryList(), Multi = false, Default = 1, Searchable = true,
+    Callback = function(v) 
+        -- Hapus (x99) dari string untuk dapat nama murni
+        Config.TradeItem = string.match(v, "^(.-) %(") or v 
+    end
+})
+
+TradeSection:Button({
+    Title = "Refresh Inventory", 
+    Callback = function() ItemDrop:SetValues(GetInventoryList()); ItemDrop:SetValue(nil) end
+})
+
+TradeSection:Input("TradeCount", {
+    Title = "Trade Amount", Description = "How many items to send?", Default = "1", Numeric = true, Finished = true,
+    Callback = function(v) Config.TradeCount = tonumber(v) or 1 end
+})
+
+TradeSection:Toggle("AutoTrade", {
+    Title = "Start Trading", Description = "Will send requests sequentially", Default = false,
+    Callback = function(v) 
+        Config.AutoTrade = v 
+        if v then PerformAutoTrade() end -- Langsung eksekusi saat di-toggle ON
+    end
+})
+
+
+-- === TAB: TELEPORT ===
+local LocationKeys = {}; if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end; table.sort(LocationKeys)
 local PlayerGroup, LocationGroup = {}, {}
 local PlayerOpen, LocationOpen = false, false
 local PlayerLine, LocationLine = nil, nil
 
-local PlayerHeader = Tabs.Teleport:Button({
-    Title = "📂 Player Teleport",
-    Description = "Click to Expand",
-    Callback = function()
-        PlayerOpen = not PlayerOpen
-        ToggleGroup(PlayerGroup, PlayerOpen)
-        AnimateLine(PlayerLine, PlayerOpen)
-        if PlayerOpen then LocationOpen=false; ToggleGroup(LocationGroup,false); AnimateLine(LocationLine,false) end
-    end
-})
-PlayerLine = AddActiveLine(PlayerHeader, PurpleColor) -- UNGU
+local PlayerHeader = Tabs.Teleport:Button({Title="📂 Player Teleport", Description="Expand", Callback=function() PlayerOpen=not PlayerOpen; ToggleGroup(PlayerGroup, PlayerOpen); AnimateLine(PlayerLine, PlayerOpen); if PlayerOpen then LocationOpen=false; ToggleGroup(LocationGroup,false); AnimateLine(LocationLine,false) end end})
+PlayerLine = AddActiveLine(PlayerHeader, PurpleColor)
 
-local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title="Select Player", Values=GetPlayerNames(), Multi=false, Default=1, Searchable=true})
-local RB = Tabs.Teleport:Button({Title="Refresh", Callback=function() PD:SetValues(GetPlayerNames()); PD:SetValue(nil) end})
-local TPB = Tabs.Teleport:Button({Title="Teleport Now", Callback=function()
-    local target = Players:FindFirstChild(PD.Value)
-    if target and target.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=target.Character.HumanoidRootPart.CFrame end
-end})
+local PD = Tabs.Teleport:Dropdown("PlayerTarget", {Title="Select Player", Values=GetPlayerList(), Multi=false, Default=1, Searchable=true})
+local RB = Tabs.Teleport:Button({Title="Refresh", Callback=function() PD:SetValues(GetPlayerList()); PD:SetValue(nil) end})
+local TPB = Tabs.Teleport:Button({Title="Teleport Now", Callback=function() local t=Players:FindFirstChild(PD.Value); if t and t.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=t.Character.HumanoidRootPart.CFrame end end})
 table.insert(PlayerGroup, PD); table.insert(PlayerGroup, RB); table.insert(PlayerGroup, TPB)
 
-local LocationHeader = Tabs.Teleport:Button({
-    Title = "📂 Location Teleport",
-    Description = "Click to Expand",
-    Callback = function()
-        LocationOpen = not LocationOpen
-        ToggleGroup(LocationGroup, LocationOpen)
-        AnimateLine(LocationLine, LocationOpen)
-        if LocationOpen then PlayerOpen=false; ToggleGroup(PlayerGroup,false); AnimateLine(PlayerLine,false) end
-    end
-})
-LocationLine = AddActiveLine(LocationHeader, PurpleColor) -- UNGU
+local LocationHeader = Tabs.Teleport:Button({Title="📂 Location Teleport", Description="Expand", Callback=function() LocationOpen=not LocationOpen; ToggleGroup(LocationGroup, LocationOpen); AnimateLine(LocationLine, LocationOpen); if LocationOpen then PlayerOpen=false; ToggleGroup(PlayerGroup,false); AnimateLine(PlayerLine,false) end end})
+LocationLine = AddActiveLine(LocationHeader, PurpleColor)
 
 local LD = Tabs.Teleport:Dropdown("LocTarget", {Title="Select Location", Values=LocationKeys, Multi=false, Default=1, Searchable=true})
-local TLB = Tabs.Teleport:Button({Title="Teleport Now", Callback=function()
-    local target = LocationCoords[LD.Value]
-    if target then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(target) end
-end})
+local TLB = Tabs.Teleport:Button({Title="Teleport Now", Callback=function() local t=LocationCoords[LD.Value]; if t then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(t) end end})
 table.insert(LocationGroup, LD); table.insert(LocationGroup, TLB)
 
-
--- [[ AUTO HIDE INIT ]]
-task.spawn(function()
-    task.wait(0.5) 
-    ToggleGroup(FishingGroup, false)
-    ToggleGroup(SellGroup, false)
-    ToggleGroup(DiscGroup, false)
-    ToggleGroup(TeleGroup, false)
-    ToggleGroup(PlayerGroup, false)
-    ToggleGroup(LocationGroup, false)
-end)
+task.spawn(function() task.wait(0.5); ToggleGroup(PlayerGroup, false); ToggleGroup(LocationGroup, false) end)
 
 -- === TAB: MERCHANT ===
 local ShopSection = Tabs.Merchant
@@ -438,6 +421,31 @@ local BaitList = {}; if ShopData.Baits then for k,_ in pairs(ShopData.Baits) do 
 ShopSection:Dropdown("BaitSelect", {Title="Select Bait", Values=BaitList, Multi=false, Default=1, Searchable=true, Callback=function(v) if ShopData.Baits then SelectedBait=ShopData.Baits[v] end end})
 ShopSection:Button({Title="Buy Bait", Callback=function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
 
+-- === TAB: WEBHOOK ===
+local DiscGroup, TeleGroup = {}, {}
+local DiscOpen, TeleOpen = false, false
+local DiscLine, TeleLine = nil, nil
+
+local DiscHeader = Tabs.Webhook:Button({Title="📂 Discord", Description="Expand Settings", Callback=function() DiscOpen=not DiscOpen; ToggleGroup(DiscGroup, DiscOpen); AnimateLine(DiscLine, DiscOpen); if DiscOpen then TeleOpen=false; ToggleGroup(TeleGroup,false); AnimateLine(TeleLine,false) end end})
+DiscLine = AddActiveLine(DiscHeader, PurpleColor)
+local D1 = Tabs.Webhook:Input("DiscordUrl", {Title="Webhook URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
+local D2 = Tabs.Webhook:Input("DiscordID", {Title="User ID", Default="", Callback=function(v) Config.DiscordID=v end})
+local D3 = Tabs.Webhook:Toggle("WebhookDiscord", {Title="Enable", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
+local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
+local D4 = Tabs.Webhook:Dropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier=tonumber(string.sub(v,1,1)) end})
+local D5 = Tabs.Webhook:Button({Title="Test", Callback=function() if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="OK!", color=65280}}}) end end})
+table.insert(DiscGroup, D1); table.insert(DiscGroup, D2); table.insert(DiscGroup, D3); table.insert(DiscGroup, D4); table.insert(DiscGroup, D5)
+
+local TeleHeader = Tabs.Webhook:Button({Title="📂 Telegram", Description="Expand Settings", Callback=function() TeleOpen=not TeleOpen; ToggleGroup(TeleGroup, TeleOpen); AnimateLine(TeleLine, TeleOpen); if TeleOpen then DiscOpen=false; ToggleGroup(DiscGroup,false); AnimateLine(DiscLine,false) end end})
+TeleLine = AddActiveLine(TeleHeader, PurpleColor)
+local T1 = Tabs.Webhook:Input("TeleToken", {Title="Bot Token", Default="", Callback=function(v) Config.TelegramToken=v end})
+local T2 = Tabs.Webhook:Input("TeleChatID", {Title="Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
+local T3 = Tabs.Webhook:Input("TeleUserID", {Title="User ID", Default="", Callback=function(v) Config.TelegramUserID=v end})
+local T4 = Tabs.Webhook:Toggle("WebhookTelegram", {Title="Enable", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
+local T5 = Tabs.Webhook:Button({Title="Test", Callback=function() if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X OK!"}) end end})
+table.insert(TeleGroup, T1); table.insert(TeleGroup, T2); table.insert(TeleGroup, T3); table.insert(TeleGroup, T4); table.insert(TeleGroup, T5)
+task.spawn(function() task.wait(0.5); ToggleGroup(DiscGroup, false); ToggleGroup(TeleGroup, false) end)
+
 -- ====== LOOPS ======
 task.spawn(function()
     while true do
@@ -447,6 +455,7 @@ task.spawn(function()
 end)
 task.spawn(function() while true do if Config.AutoEquip and NetworkLoaded then pcall(function() Events.equip:FireServer(1) end) end task.wait(2.5) end end)
 task.spawn(function() while true do if Config.AutoSell and NetworkLoaded then pcall(function() Events.sell:InvokeServer() end) end task.wait(Config.SellDelay or 10) end end)
+task.spawn(function() while true do if Config.AutoFavorite and NetworkLoaded then PerformAutoFavorite() end task.wait(5) end end)
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
