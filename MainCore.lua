@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v7.0.0 (ItemUtility Integration)
--- Update: Menggunakan 'Shared.ItemUtility' untuk Database yang 100% Akurat
--- Update: Otomatis membaca SEMUA Ikan & Rods dari Game Data
--- Update: Inventory Refresh sekarang menggunakan database ini
+-- Gamen X | Core Logic v6.3.0 (Accordion Restored & Fixed)
+-- Update: MENGEMBALIKAN fitur Accordion (Collapsible UI) sesuai permintaan
+-- Update: Memperbaiki penyebab error 'nil value' pada logika Hide/Show
+-- Update: Fitur Auto Fish, Trade, Webhook, Inventory Scan tetap aktif
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v7.0.0...")
+print("[Gamen X] Initializing v6.3.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -36,8 +36,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v7.0.0",
-    SubTitle = "ItemUtility",
+    Title = "Gamen X | Core v6.3.0",
+    SubTitle = "Accordion Back",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -50,6 +50,7 @@ local Options = Fluent.Options
 
 -- ====== LOCAL STATE ======
 local Config = Data.Config or {}
+-- Default Safety
 Config.AutoFish = false
 Config.AutoEquip = false
 Config.AutoSell = false
@@ -60,7 +61,6 @@ Config.TradeDelay = 1.0
 Config.WebhookFish = false
 Config.WebhookMinTier = 1
 
--- Database Lokal (Diisi oleh ItemUtility)
 local ShopData = { Rods = {}, Baits = {} } 
 local LocationCoords = Data.LocationCoords or {}
 local FishTierMap = {} 
@@ -72,6 +72,61 @@ local NetworkLoaded = false
 local Events = {}
 local InputControlModule = nil
 local GameModules = {}
+
+-- ====== VISIBILITY & ANIMATION HELPERS (FIXED) ======
+local PurpleColor = Color3.fromRGB(170, 85, 255)
+
+local function AddActiveLine(element)
+    -- Safety Check: Pastikan elemen ada sebelum akses .Frame
+    if not element then return nil end
+    
+    local frame = nil
+    pcall(function()
+        if element.Frame then frame = element.Frame 
+        elseif element.Instance and element.Instance.Frame then frame = element.Instance.Frame end
+    end)
+    
+    if not frame then return nil end
+
+    local line = Instance.new("Frame")
+    line.Name = "ActiveIndicator"
+    line.BackgroundColor3 = PurpleColor
+    line.BorderSizePixel = 0
+    line.Position = UDim2.new(0.5, 0, 1, -2)
+    line.AnchorPoint = Vector2.new(0.5, 0)
+    line.Size = UDim2.new(0, 0, 0, 2)
+    line.Parent = frame
+    return line
+end
+
+local function AnimateLine(line, isActive)
+    if not line then return end
+    local targetSize = isActive and UDim2.new(1, 0, 0, 2) or UDim2.new(0, 0, 0, 2)
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    TweenService:Create(line, tweenInfo, {Size = targetSize}):Play()
+end
+
+local function SetItemVisible(item, state)
+    pcall(function()
+        if type(item) == "table" then
+            -- Cek berbagai kemungkinan struktur Library
+            if item.Frame then 
+                item.Frame.Visible = state
+            elseif item.Instance and item.Instance.Frame then 
+                item.Instance.Frame.Visible = state
+            elseif item.Container then -- Khusus Section
+                item.Container.Parent.Visible = state
+            end
+        end
+    end)
+end
+
+local function ToggleGroup(group, state)
+    if type(group) ~= "table" then return end
+    for _, item in pairs(group) do 
+        SetItemVisible(item, state) 
+    end
+end
 
 -- ====== HELPER FUNCTIONS ======
 local function GetTierName(tier)
@@ -109,70 +164,37 @@ local function HandleFishCaught(fishName, fishData)
     end
 end
 
--- [[ DATABASE BUILDER VIA ITEMUTILITY ]]
-local function BuildDatabase()
-    print("[Gamen X] Loading ItemUtility...")
-    local itemUtilModule = ReplicatedStorage:WaitForChild("Shared", 5):WaitForChild("ItemUtility", 5)
-    if not itemUtilModule then 
-        warn("[Gamen X] ItemUtility not found in Shared!")
-        return 
-    end
+-- [[ GAME ITEM SCANNER ]]
+local function ScanGameItems()
+    local itemsFolder = ReplicatedStorage:WaitForChild("Items", 5)
+    if not itemsFolder then return end
     
-    local ItemUtility = require(itemUtilModule)
-    
-    -- 1. LOAD FISH
-    if ItemUtility.GetFish then
-        local allFish = ItemUtility:GetFish()
-        print("[Gamen X] Found " .. #allFish .. " fish species.")
-        for _, fish in pairs(allFish) do
-            if fish.Data then
-                local name = fish.Data.Name
-                local id = fish.Data.Id
-                local tier = fish.Data.Tier
-                
-                if name and id then
-                    IdToName[tostring(id)] = name
-                    IdToName[id] = name
+    for _, module in pairs(itemsFolder:GetChildren()) do
+        if module:IsA("ModuleScript") then
+            local success, data = pcall(require, module)
+            if success and data and data.Data then
+                local d = data.Data
+                if d.Id and d.Name then
+                    IdToName[tostring(d.Id)] = d.Name
+                    IdToName[d.Id] = d.Name
                 end
-                
-                if name and tier then
-                    FishTierMap[name] = tier
+                if d.Type == "Fish" and d.Name and d.Tier then
+                    FishTierMap[d.Name] = d.Tier
+                elseif d.Type == "Fishing Rods" and d.Name and d.Id then
+                    ShopData.Rods[d.Name] = d.Id
+                elseif d.Type == "Baits" and d.Name and d.Id then
+                    ShopData.Baits[d.Name] = d.Id
                 end
             end
         end
     end
-    
-    -- 2. LOAD RODS
-    if ItemUtility.GetFishingRods then
-        local allRods = ItemUtility:GetFishingRods()
-        for _, rod in pairs(allRods) do
-            if rod.Data and rod.Data.Name and rod.Data.Id then
-                ShopData.Rods[rod.Data.Name] = rod.Data.Id
-                IdToName[rod.Data.Id] = rod.Data.Name
-            end
-        end
-    end
-    
-    -- 3. LOAD BAITS
-    if ItemUtility.GetBaits then
-        local allBaits = ItemUtility:GetBaits()
-        for _, bait in pairs(allBaits) do
-            if bait.Data and bait.Data.Name and bait.Data.Id then
-                ShopData.Baits[bait.Data.Name] = bait.Data.Id
-                IdToName[bait.Data.Id] = bait.Data.Name
-            end
-        end
-    end
-    
-    Fluent:Notify({Title = "Database", Content = "Loaded from ItemUtility!", Duration = 3})
 end
 
 -- ====== NETWORK LOADER ======
 task.spawn(function()
     task.wait(1)
     local success, err = pcall(function()
-        -- Build Database FIRST
-        BuildDatabase()
+        ScanGameItems()
         
         local Packages = ReplicatedStorage:WaitForChild("Packages", 5)
         if not Packages then return end
@@ -184,6 +206,7 @@ task.spawn(function()
         end
         if not NetPackage then return end
         local NetFolder = NetPackage:WaitForChild("net", 5)
+        
         pcall(function() InputControlModule = ReplicatedStorage:WaitForChild("Modules", 2):WaitForChild("InputControl", 2) end)
         
         pcall(function()
@@ -203,8 +226,8 @@ task.spawn(function()
         Events.trade = NetFolder:WaitForChild("RF/InitiateTrade", 2)
         Events.getData = NetFolder:WaitForChild("RF/GetPlayerData", 2)
         Events.fishCaught = NetFolder:WaitForChild("RE/FishCaught", 2)
+        
         if Events.fishCaught then Events.fishCaught.OnClientEvent:Connect(HandleFishCaught) end
-
         NetworkLoaded = true
         Fluent:Notify({Title = "Gamen X", Content = "Connected!", Duration = 3})
     end)
@@ -227,23 +250,20 @@ local function ReelIn()
     pcall(function() Events.fishing:FireServer() end)
 end
 
--- [[ INVENTORY SCANNER ]]
 local function GetInventoryList()
-    local items = {}
-    local counts = {}
+    local items, counts = {}, {}
     
-    -- 1. Coba Pake Replion (Data Stream)
+    -- 1. Replion Scan
     if GameModules.PlayerDataReplion then
         local success, data = pcall(function() return GameModules.PlayerDataReplion:Get() end)
-        if success and data and data.Inventory and data.Inventory.Items then
-            for _, itemData in pairs(data.Inventory.Items) do
+        if success and data and data.Inventory then
+            for _, itemData in pairs(data.Inventory.Items or {}) do
                 local name = itemData.Name
-                -- Translate ID jika perlu (PENTING: IdToName sudah diisi ItemUtility)
                 if tonumber(name) and IdToName[tostring(name)] then name = IdToName[tostring(name)] end
                 if name then counts[name] = (counts[name] or 0) + (itemData.Amount or 1) end
             end
         end
-    -- 2. Fallback ke Folder Scan
+    -- 2. Folder Scan
     else
         local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
         local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
@@ -260,10 +280,7 @@ local function GetInventoryList()
                 if nameObj then nameVal = nameObj.Value end
                 if not nameVal then
                     local idObj = item:FindFirstChild("Id")
-                    if idObj then 
-                        local id = idObj.Value
-                        nameVal = IdToName[tostring(id)] or ("ID: " .. tostring(id))
-                    end
+                    if idObj then nameVal = IdToName[tostring(idObj.Value)] end
                 end
                 if nameVal then counts[nameVal] = (counts[nameVal] or 0) + 1 end
             end
@@ -276,29 +293,23 @@ local function GetInventoryList()
     return items
 end
 
--- [[ AUTO FAVORITE ]]
 local function PerformAutoFavorite()
     if not NetworkLoaded or not Events.favorite then return end
     local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
     local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
     local inventory = myData and myData:FindFirstChild("Inventory")
     local folders = {inventory:FindFirstChild("Items"), inventory:FindFirstChild("Fish")}
-    
     for _, folder in pairs(folders) do
         if folder then
             for _, item in pairs(folder:GetChildren()) do
-                local nameVal = nil
                 local nameObj = item:FindFirstChild("Name")
-                if nameObj then nameVal = nameObj.Value end
-                
-                -- Translate ID (ItemUtility Powered)
-                if not nameVal then
+                local itemName = nameObj and nameObj.Value
+                if not itemName then
                     local idObj = item:FindFirstChild("Id")
-                    if idObj then nameVal = IdToName[tostring(idObj.Value)] end
+                    if idObj then itemName = IdToName[tostring(idObj.Value)] end
                 end
-
-                if nameVal then
-                    local tier = FishTierMap[nameVal] or 0
+                if itemName then
+                    local tier = FishTierMap[itemName] or 0
                     if tier >= 5 then 
                          local lockedObj = item:FindFirstChild("Locked")
                          local isLocked = lockedObj and lockedObj.Value
@@ -310,12 +321,11 @@ local function PerformAutoFavorite()
     end
 end
 
--- [[ TRADING LOGIC ]]
 local function PerformAutoTrade()
     if not NetworkLoaded or not Events.trade or not Config.AutoTrade then return end
     local targetPlayer = Players:FindFirstChild(Config.TradePlayer)
     if not targetPlayer then 
-        Fluent:Notify({Title="Trade Error", Content="Player not found!", Duration=2})
+        Fluent:Notify({Title="Error", Content="Player not found", Duration=2})
         Config.AutoTrade = false
         return
     end
@@ -324,7 +334,6 @@ local function PerformAutoTrade()
     local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
     local inventory = myData and myData:FindFirstChild("Inventory")
     local folders = {inventory:FindFirstChild("Items"), inventory:FindFirstChild("Fish")}
-    
     for _, folder in pairs(folders) do
         if folder then
             for _, item in pairs(folder:GetChildren()) do
@@ -337,14 +346,12 @@ local function PerformAutoTrade()
                 end
                 local lockedObj = item:FindFirstChild("Locked")
                 local isLocked = lockedObj and lockedObj.Value
-                
                 if nameVal == Config.TradeItem and not isLocked then
                     table.insert(itemsToSend, item.Name)
                 end
             end
         end
     end
-    
     local sentCount = 0
     for _, uuid in ipairs(itemsToSend) do
         if sentCount >= Config.TradeCount then break end
@@ -352,7 +359,7 @@ local function PerformAutoTrade()
         local success = pcall(function() Events.trade:InvokeServer(unpack(args)) end)
         if success then sentCount = sentCount + 1; task.wait(Config.TradeDelay) end
     end
-    Fluent:Notify({Title="Trading", Content="Sent "..sentCount.." requests.", Duration=3})
+    Fluent:Notify({Title="Trading", Content="Sent "..sentCount.." requests", Duration=3})
     Config.AutoTrade = false 
 end
 
@@ -366,74 +373,135 @@ local Tabs = {
     Settings = Window:Tab({ Title = "Settings", Icon = "settings" }),
 }
 
--- === TAB: MAIN ===
+-- === TAB: MAIN (ACCORDION RESTORED) ===
 local MainSec = Tabs.Main:Section("Automation")
-MainSec:Toggle("AutoFish", {Title = "Enable Auto Fish", Description = "Spam Cast & Reel (Barbar)", Default = false, Callback = function(v) Config.AutoFish=v end})
-MainSec:Toggle("AutoEquip", {Title = "Auto Equip Rod", Default = false, Callback = function(v) Config.AutoEquip=v end})
-MainSec:Toggle("AutoSell", {Title = "Auto Sell All", Default = false, Callback = function(v) Config.AutoSell=v end})
-MainSec:Toggle("AutoFavorite", {Title = "Auto Favorite (Legendary+)", Description = "Lock rare fish", Default = false, Callback = function(v) Config.AutoFavorite=v end})
+-- Groups
+local FishingGroup, FishingLine, FishingOpen = {}, nil, false
+local SellGroup, SellLine, SellOpen = {}, nil, false
 
-local TimeSec = Tabs.Main:Section("Delays")
-TimeSec:Input("FishDelay", {Title="Fish Delay (Bite Time)", Default="2.0", Numeric=true, Finished=true, Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end})
-TimeSec:Input("CatchDelay", {Title="Catch Delay (Cooldown)", Default="0.5", Numeric=true, Finished=true, Callback=function(v) Config.CatchDelay=tonumber(v) or 0.5 end})
-TimeSec:Input("SellDelay", {Title="Sell Delay (Seconds)", Default="10", Numeric=true, Finished=true, Callback=function(v) Config.SellDelay=tonumber(v) or 10 end})
+local FishHeader = MainSec:Button({
+    Title = "📂 Fishing Feature",
+    Description = "Click to Expand",
+    Callback = function()
+        FishingOpen = not FishingOpen
+        ToggleGroup(FishingGroup, FishingOpen)
+        AnimateLine(FishingLine, FishingOpen)
+        if FishingOpen then SellOpen=false; ToggleGroup(SellGroup,false); AnimateLine(SellLine,false) end
+    end
+})
+FishingLine = AddActiveLine(FishHeader)
 
--- === TAB: TRADING ===
-local TradeSec = Tabs.Trading:Section("Trade Settings")
+local I1 = MainSec:Input("FishDelay", {Title="Fish Delay", Default="2.0", Numeric=true, Finished=true, Callback=function(v) Config.FishDelay=tonumber(v) or 2.0 end})
+local I2 = MainSec:Input("CatchDelay", {Title="Catch Delay", Default="0.5", Numeric=true, Finished=true, Callback=function(v) Config.CatchDelay=tonumber(v) or 0.5 end})
+local T1 = MainSec:Toggle("AutoFish", {Title="Auto Fish", Default=false, Callback=function(v) Config.AutoFish=v end})
+local T2 = MainSec:Toggle("AutoEquip", {Title="Auto Equip", Default=false, Callback=function(v) Config.AutoEquip=v end})
+local T3 = MainSec:Toggle("AutoFavorite", {Title="Auto Favorite", Default=false, Callback=function(v) Config.AutoFavorite=v end})
+
+table.insert(FishingGroup, I1); table.insert(FishingGroup, I2); 
+table.insert(FishingGroup, T1); table.insert(FishingGroup, T2); table.insert(FishingGroup, T3)
+
+local SellHeader = MainSec:Button({
+    Title = "📂 Auto Sell",
+    Description = "Click to Expand",
+    Callback = function()
+        SellOpen = not SellOpen
+        ToggleGroup(SellGroup, SellOpen)
+        AnimateLine(SellLine, SellOpen)
+        if SellOpen then FishingOpen=false; ToggleGroup(FishingGroup,false); AnimateLine(FishingLine,false) end
+    end
+})
+SellLine = AddActiveLine(SellHeader)
+
+local I3 = MainSec:Input("SellDelay", {Title="Sell Delay", Default="10", Numeric=true, Finished=true, Callback=function(v) Config.SellDelay=tonumber(v) or 10 end})
+local T4 = MainSec:Toggle("AutoSell", {Title="Auto Sell", Default=false, Callback=function(v) Config.AutoSell=v end})
+
+table.insert(SellGroup, I3); table.insert(SellGroup, T4)
+
+-- Init Hide Main
+task.spawn(function() task.wait(0.5); ToggleGroup(FishingGroup, false); ToggleGroup(SellGroup, false) end)
+
+
+-- === TAB: TRADING (NO ACCORDION) ===
+local TradeSec = Tabs.Trading:Section("Trade")
 local function GetPlayerList()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
     if #l==0 then table.insert(l, "No Players") end
     return l
 end
-
 local PlayerDrop = TradeSec:Dropdown("TradePlayer", {Title = "Select Player", Values = GetPlayerList(), Multi = false, Default = 1, Searchable = true, Callback = function(v) Config.TradePlayer = v end})
 TradeSec:Button({Title = "Refresh Players", Callback = function() PlayerDrop:SetValues(GetPlayerList()); PlayerDrop:SetValue(nil) end})
-
-local ItemDrop = TradeSec:Dropdown("TradeItem", {Title = "Select Item to Trade", Values = {"Click Refresh first"}, Multi = false, Default = 1, Searchable = true, Callback = function(v) if v then Config.TradeItem = string.match(v, "^(.-) %(") or v else Config.TradeItem = nil end end})
+local ItemDrop = TradeSec:Dropdown("TradeItem", {Title = "Select Item", Values = {"Click Refresh"}, Multi = false, Default = 1, Searchable = true, Callback = function(v) if v then Config.TradeItem = string.match(v, "^(.-) %(") or v else Config.TradeItem = nil end end})
 TradeSec:Button({Title = "Refresh Inventory", Callback = function() local list = GetInventoryList(); ItemDrop:SetValues(list); ItemDrop:SetValue(nil); Fluent:Notify({Title="Inventory", Content="Refreshed!", Duration=1}) end})
-TradeSec:Input("TradeCount", {Title = "Trade Amount", Default = "1", Numeric = true, Finished = true, Callback = function(v) Config.TradeCount = tonumber(v) or 1 end})
+TradeSec:Input("TradeCount", {Title = "Amount", Default = "1", Numeric = true, Finished = true, Callback = function(v) Config.TradeCount = tonumber(v) or 1 end})
 TradeSec:Toggle("AutoTrade", {Title = "Start Trading", Default = false, Callback = function(v) Config.AutoTrade = v; if v then PerformAutoTrade() end end})
 
--- === TAB: TELEPORT ===
-local LocationKeys = {}; if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end; table.sort(LocationKeys)
-local TeleSec = Tabs.Teleport:Section("Teleport Manager")
-local PD = TeleSec:Dropdown("PlayerTarget", {Title="Select Player", Values=GetPlayerList(), Multi=false, Default=1, Searchable=true})
-TeleSec:Button({Title="Refresh", Callback=function() PD:SetValues(GetPlayerList()); PD:SetValue(nil) end})
-TeleSec:Button({Title="Teleport Now", Callback=function() local t=Players:FindFirstChild(PD.Value); if t and t.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=t.Character.HumanoidRootPart.CFrame end end})
-local LD = TeleSec:Dropdown("LocTarget", {Title="Select Location", Values=LocationKeys, Multi=false, Default=1, Searchable=true})
-TeleSec:Button({Title="Teleport Now", Callback=function() local t=LocationCoords[LD.Value]; if t then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(t) end end})
 
--- === TAB: MERCHANT ===
+-- === TAB: TELEPORT (ACCORDION RESTORED) ===
+local LocationKeys = {}; if LocationCoords then for k,_ in pairs(LocationCoords) do table.insert(LocationKeys,k) end end; table.sort(LocationKeys)
+local TeleSec = Tabs.Teleport:Section("Teleport")
+local PlayerGroup, LocGroup = {}, {}
+local PlayerOpen, LocOpen = false, false
+local PlayerLine, LocLine = nil, nil
+
+-- Player Accordion
+local PHead = TeleSec:Button({Title="📂 Player Teleport", Callback=function() PlayerOpen=not PlayerOpen; ToggleGroup(PlayerGroup,PlayerOpen); AnimateLine(PlayerLine,PlayerOpen); if PlayerOpen then LocOpen=false; ToggleGroup(LocGroup,false); AnimateLine(LocLine,false) end end})
+PlayerLine = AddActiveLine(PHead)
+
+local PD = TeleSec:Dropdown("PlayerTarget", {Title="Select Player", Values=GetPlayerList(), Multi=false, Default=1, Searchable=true})
+local RB = TeleSec:Button({Title="Refresh", Callback=function() PD:SetValues(GetPlayerList()); PD:SetValue(nil) end})
+local TPB = TeleSec:Button({Title="Teleport Now", Callback=function() local t=Players:FindFirstChild(PD.Value); if t and t.Character then LocalPlayer.Character.HumanoidRootPart.CFrame=t.Character.HumanoidRootPart.CFrame end end})
+table.insert(PlayerGroup, PD); table.insert(PlayerGroup, RB); table.insert(PlayerGroup, TPB)
+
+-- Location Accordion
+local LHead = TeleSec:Button({Title="📂 Location Teleport", Callback=function() LocOpen=not LocOpen; ToggleGroup(LocGroup,LocOpen); AnimateLine(LocLine,LocOpen); if LocOpen then PlayerOpen=false; ToggleGroup(PlayerGroup,false); AnimateLine(PlayerLine,false) end end})
+LocLine = AddActiveLine(LHead)
+
+local LD = TeleSec:Dropdown("LocTarget", {Title="Select Location", Values=LocationKeys, Multi=false, Default=1, Searchable=true})
+local TLB = TeleSec:Button({Title="Teleport Now", Callback=function() local t=LocationCoords[LD.Value]; if t then LocalPlayer.Character.HumanoidRootPart.CFrame=CFrame.new(t) end end})
+table.insert(LocGroup, LD); table.insert(LocGroup, TLB)
+
+-- Init Hide Teleport
+task.spawn(function() task.wait(0.5); ToggleGroup(PlayerGroup, false); ToggleGroup(LocGroup, false) end)
+
+-- === TAB: MERCHANT (NO ACCORDION) ===
 local ShopSec = Tabs.Merchant:Section("Shop")
 local RodList = {}; if ShopData.Rods then for k,_ in pairs(ShopData.Rods) do table.insert(RodList, k) end end; table.sort(RodList)
 local RodDrop = ShopSec:Dropdown("RodSelect", {Title="Select Rod", Values=RodList, Multi=false, Default=1, Searchable=true, Callback=function(v) if ShopData.Rods then SelectedRod=ShopData.Rods[v] end end})
 ShopSec:Button({Title="Buy Rod", Callback=function() if SelectedRod and NetworkLoaded then Events.buyRod:InvokeServer(SelectedRod) end end})
-
 local BaitList = {}; if ShopData.Baits then for k,_ in pairs(ShopData.Baits) do table.insert(BaitList, k) end end; table.sort(BaitList)
 local BaitDrop = ShopSec:Dropdown("BaitSelect", {Title="Select Bait", Values=BaitList, Multi=false, Default=1, Searchable=true, Callback=function(v) if ShopData.Baits then SelectedBait=ShopData.Baits[v] end end})
 ShopSec:Button({Title="Buy Bait", Callback=function() if SelectedBait and NetworkLoaded then Events.buyBait:InvokeServer(SelectedBait) end end})
+-- Async update shop
+task.spawn(function() repeat task.wait(2) until next(ShopData.Rods); local NR={}; for k,_ in pairs(ShopData.Rods) do table.insert(NR,k) end; table.sort(NR); RodDrop:SetValues(NR); local NB={}; for k,_ in pairs(ShopData.Baits) do table.insert(NB,k) end; table.sort(NB); BaitDrop:SetValues(NB) end)
 
--- Update Shop Async
-task.spawn(function()
-    repeat task.wait(2) until next(ShopData.Rods)
-    local NR, NB = {}, {}
-    for k,_ in pairs(ShopData.Rods) do table.insert(NR,k) end; table.sort(NR); RodDrop:SetValues(NR)
-    for k,_ in pairs(ShopData.Baits) do table.insert(NB,k) end; table.sort(NB); BaitDrop:SetValues(NB)
-end)
+-- === TAB: WEBHOOK (ACCORDION RESTORED) ===
+local WebSec = Tabs.Webhook:Section("Webhook")
+local DiscGroup, TeleGroup = {}, {}
+local DiscOpen, TeleOpen = false, false
+local DiscLine, TeleLine = nil, nil
 
--- === TAB: WEBHOOK ===
-local WebhookSec = Tabs.Webhook:Section("Webhook Settings")
-WebhookSec:Input("DiscordUrl", {Title="Webhook URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
-WebhookSec:Input("DiscordID", {Title="User ID", Default="", Callback=function(v) Config.DiscordID=v end})
-WebhookSec:Toggle("WebhookDiscord", {Title="Enable Discord", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
+local DHead = WebSec:Button({Title="📂 Discord", Callback=function() DiscOpen=not DiscOpen; ToggleGroup(DiscGroup,DiscOpen); AnimateLine(DiscLine,DiscOpen); if DiscOpen then TeleOpen=false; ToggleGroup(TeleGroup,false); AnimateLine(TeleLine,false) end end})
+DiscLine = AddActiveLine(DHead)
+local D1 = WebSec:Input("DUrl", {Title="URL", Default="", Callback=function(v) Config.DiscordUrl=v end})
+local D2 = WebSec:Input("DID", {Title="User ID", Default="", Callback=function(v) Config.DiscordID=v end})
+local D3 = WebSec:Toggle("DEnable", {Title="Enable", Default=false, Callback=function(v) Config.WebhookDiscord=v end})
 local TierList = {"1 - Common", "2 - Uncommon", "3 - Rare", "4 - Epic", "5 - Legendary", "6 - Mythic", "7 - Secret"}
-WebhookSec:Dropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier=tonumber(string.sub(v,1,1)) end})
-WebhookSec:Input("TeleToken", {Title="Telegram Token", Default="", Callback=function(v) Config.TelegramToken=v end})
-WebhookSec:Input("TeleChatID", {Title="Telegram Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
-WebhookSec:Input("TeleUserID", {Title="Telegram User ID", Default="", Callback=function(v) Config.TelegramUserID=v end})
-WebhookSec:Toggle("WebhookTelegram", {Title="Enable Telegram", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
-WebhookSec:Button({Title="Test", Callback=function() if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="OK!", color=65280}}}) end end})
+local D4 = WebSec:Dropdown("MinTier", {Title="Min Rarity", Values=TierList, Multi=false, Default=1, Searchable=true, Callback=function(v) Config.WebhookMinTier=tonumber(string.sub(v,1,1)) end})
+local D5 = WebSec:Button({Title="Test", Callback=function() if Config.DiscordUrl~="" then SendWebhook(Config.DiscordUrl, {content="Test", embeds={{title="Gamen X", description="OK!", color=65280}}}) end end})
+table.insert(DiscGroup, D1); table.insert(DiscGroup, D2); table.insert(DiscGroup, D3); table.insert(DiscGroup, D4); table.insert(DiscGroup, D5)
+
+local THead = WebSec:Button({Title="📂 Telegram", Callback=function() TeleOpen=not TeleOpen; ToggleGroup(TeleGroup,TeleOpen); AnimateLine(TeleLine,TeleOpen); if TeleOpen then DiscOpen=false; ToggleGroup(DiscGroup,false); AnimateLine(DiscLine,false) end end})
+TeleLine = AddActiveLine(THead)
+local T1 = WebSec:Input("TToken", {Title="Token", Default="", Callback=function(v) Config.TelegramToken=v end})
+local T2 = WebSec:Input("TChat", {Title="Chat ID", Default="", Callback=function(v) Config.TelegramChatID=v end})
+local T3 = WebSec:Input("TUser", {Title="User ID", Default="", Callback=function(v) Config.TelegramUserID=v end})
+local T4 = WebSec:Toggle("TEnable", {Title="Enable", Default=false, Callback=function(v) Config.WebhookTelegram=v end})
+local T5 = WebSec:Button({Title="Test", Callback=function() if Config.TelegramToken~="" then SendWebhook("https://api.telegram.org/bot"..Config.TelegramToken.."/sendMessage", {chat_id=Config.TelegramChatID, text="Gamen X OK!"}) end end})
+table.insert(TeleGroup, T1); table.insert(TeleGroup, T2); table.insert(TeleGroup, T3); table.insert(TeleGroup, T4); table.insert(TeleGroup, T5)
+
+-- Init Hide Webhook
+task.spawn(function() task.wait(0.5); ToggleGroup(DiscGroup, false); ToggleGroup(TeleGroup, false) end)
 
 -- ====== LOOPS ======
 task.spawn(function()
