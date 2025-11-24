@@ -1,12 +1,12 @@
--- Gamen X | Core Logic v5.1.0 (Inventory Reader Fix)
--- Update: Memperbaiki logika pembacaan Inventory (Nama Ikan sekarang muncul)
--- Update: Fix error 'attempt to index string with Value'
--- Update: Optimasi deteksi folder PlayerData
+-- Gamen X | Core Logic v5.2.0 (Inventory Debug)
+-- Update: Memperbaiki logika pembacaan Inventory (Smart Scan)
+-- Update: Menambahkan Debug Print di Console (F9) untuk melacak error
+-- Update: Mencari ikan di folder 'Items' DAN 'Fish'
 
 -- [[ KONFIGURASI DEPENDENCY ]]
 local Variables_URL = "https://raw.githubusercontent.com/nealmtroy/gamenx/main/Modules/Variables.lua"
 
-print("[Gamen X] Initializing v5.1.0...")
+print("[Gamen X] Initializing v5.2.0...")
 
 -- 1. LOAD VARIABLES
 local success, Data = pcall(function()
@@ -36,8 +36,8 @@ local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/A
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
 
 local Window = Fluent:Window({
-    Title = "Gamen X | Core v5.1.0",
-    SubTitle = "Inventory Fix",
+    Title = "Gamen X | Core v5.2.0",
+    SubTitle = "Inventory Debug",
     TabWidth = 120,
     Size = UDim2.fromOffset(580, 520),
     Resize = true,
@@ -193,17 +193,14 @@ end
 -- [[ AUTO FAVORITE LOGIC ]]
 local function PerformAutoFavorite()
     if not NetworkLoaded or not Events.favorite then return end
-    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 5)
-    if not playerData then return end
-    local myData = playerData:FindFirstChild(LocalPlayer.UserId)
-    if not myData then return end
-    local inventory = myData:FindFirstChild("Inventory")
-    if not inventory then return end
-    local itemsFolder = inventory:FindFirstChild("Items")
+    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+    local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId)) -- Fix tostring
+    local inventory = myData and myData:FindFirstChild("Inventory")
+    local itemsFolder = inventory and inventory:FindFirstChild("Items")
+    
     if not itemsFolder then return end
     
     for _, item in pairs(itemsFolder:GetChildren()) do
-        -- FIXED: Mengambil Value dari Child 'Name' dengan aman
         local nameObj = item:FindFirstChild("Name")
         local itemName = nameObj and nameObj.Value
         
@@ -221,7 +218,6 @@ end
 -- [[ TRADING LOGIC ]]
 local function PerformAutoTrade()
     if not NetworkLoaded or not Events.trade or not Config.AutoTrade then return end
-    
     local targetPlayer = Players:FindFirstChild(Config.TradePlayer)
     if not targetPlayer then 
         Fluent:Notify({Title="Trade Error", Content="Player not found!", Duration=2})
@@ -229,22 +225,20 @@ local function PerformAutoTrade()
         return
     end
     
-    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 5)
-    local myData = playerData:FindFirstChild(LocalPlayer.UserId)
+    -- SMART SCAN INVENTORY
+    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+    local myData = playerData and playerData:FindFirstChild(tostring(LocalPlayer.UserId))
     local inventory = myData and myData:FindFirstChild("Inventory")
-    local itemsFolder = inventory and inventory:FindFirstChild("Items")
+    local itemsFolder = inventory and inventory:FindFirstChild("Items") -- Cek Items dulu
+    if not itemsFolder and inventory then itemsFolder = inventory:FindFirstChild("Fish") end -- Cek Fish sebagai backup
     
     if not itemsFolder then return end
     
     local sentCount = 0
-    
     for _, item in pairs(itemsFolder:GetChildren()) do
         if sentCount >= Config.TradeCount then break end
-        
-        -- FIXED: Mengambil Nama Item dengan Aman
         local nameObj = item:FindFirstChild("Name")
         local itemName = nameObj and nameObj.Value
-        
         local lockedObj = item:FindFirstChild("Locked")
         local isLocked = lockedObj and lockedObj.Value
         
@@ -318,7 +312,7 @@ local Tog4 = Tabs.Main:Toggle("AutoSell", {Title="Enable Auto Sell", Default=fal
 table.insert(SellGroup, Inp3); table.insert(SellGroup, Tog4)
 task.spawn(function() task.wait(0.5); ToggleGroup(FishingGroup, false); ToggleGroup(SellGroup, false) end)
 
--- === TAB: TRADING (FIXED REFRESH) ===
+-- === TAB: TRADING (SMART INVENTORY READER) ===
 local function GetPlayerList()
     local l = {}
     for _,v in pairs(Players:GetPlayers()) do if v~=LocalPlayer then table.insert(l,v.Name) end end
@@ -326,26 +320,43 @@ local function GetPlayerList()
     return l
 end
 
+-- UPDATED: DEBUG INVENTORY LIST
 local function GetInventoryList()
     local l = {}
-    local playerData = ReplicatedStorage:WaitForChild("PlayerData", 2) -- Pake WaitForChild biar aman
-    local myData = playerData and playerData:FindFirstChild(LocalPlayer.UserId)
-    local inventory = myData and myData:FindFirstChild("Inventory")
-    local items = inventory and inventory:FindFirstChild("Items") -- Folder Items
+    print("[Gamen X Debug] Scanning Inventory...")
     
-    if items then
-        local counts = {}
-        for _, item in pairs(items:GetChildren()) do
-            -- FIX 2: Pastikan Name string value ada sebelum akses .Value
-            local nameObj = item:FindFirstChild("Name")
-            if nameObj and nameObj.Value then
-                local realName = nameObj.Value
-                counts[realName] = (counts[realName] or 0) + 1
+    local playerData = ReplicatedStorage:FindFirstChild("PlayerData")
+    if not playerData then print("- PlayerData Missing"); return {"Error: No PlayerData"} end
+    
+    local myData = playerData:FindFirstChild(tostring(LocalPlayer.UserId))
+    if not myData then print("- MyData Missing"); return {"Error: No User Data"} end
+    
+    local inventory = myData:FindFirstChild("Inventory")
+    if not inventory then print("- Inventory Folder Missing"); return {"Error: No Inv Folder"} end
+    
+    -- Cek dua folder kemungkinan
+    local foldersToCheck = {inventory:FindFirstChild("Items"), inventory:FindFirstChild("Fish")}
+    local counts = {}
+    local found = false
+    
+    for _, folder in pairs(foldersToCheck) do
+        if folder then
+            print("- Checking Folder: " .. folder.Name)
+            for _, item in pairs(folder:GetChildren()) do
+                local nameObj = item:FindFirstChild("Name")
+                if nameObj and nameObj.Value then
+                    local realName = nameObj.Value
+                    counts[realName] = (counts[realName] or 0) + 1
+                    found = true
+                end
             end
         end
-        for name, count in pairs(counts) do
-            table.insert(l, name .. " (x"..count..")")
-        end
+    end
+    
+    if not found then print("- No Items Found in valid folders"); end
+    
+    for name, count in pairs(counts) do
+        table.insert(l, name .. " (x"..count..")")
     end
     
     if #l==0 then table.insert(l, "Empty Inventory") end
@@ -381,7 +392,7 @@ TradeSection:Button({
     Callback = function() 
         ItemDrop:SetValues(GetInventoryList())
         ItemDrop:SetValue(nil) 
-        Fluent:Notify({Title="Inventory", Content="Refreshed!", Duration=1})
+        Fluent:Notify({Title="Inventory", Content="Refreshed (Check F9 if empty)", Duration=1})
     end
 })
 
