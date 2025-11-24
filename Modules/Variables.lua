@@ -1,6 +1,6 @@
--- Gamen X | Variables Module v6.0.0
--- Update: Menghapus JSON Manual (Sekarang Auto-Scan dari Game)
--- Update: Struktur file lebih bersih
+-- Gamen X | Variables Module (Clean)
+-- Update: Menghapus JSON Manual
+-- Update: Database disiapkan kosong untuk diisi oleh Auto-Scanner di Core
 
 local Variables = {}
 
